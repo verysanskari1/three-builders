@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getState, setState } from '@/lib/kv'
 import { isHostAuthenticated } from '@/lib/auth'
-import { pusherServer, PUSHER_CHANNEL } from '@/lib/pusher-server'
+import { getPusherServer, PUSHER_CHANNEL } from '@/lib/pusher-server'
 
 export async function POST(
   req: NextRequest,
@@ -32,14 +32,14 @@ export async function POST(
       running: false,
       startedAt: null,
     }
-    await pusherServer.trigger(PUSHER_CHANNEL, 'timer-update', {
+    await getPusherServer()?.trigger(PUSHER_CHANNEL, 'timer-update', {
       id: contestant,
       timer: state.timers[contestant],
     })
   }
 
   await setState(state)
-  await pusherServer.trigger(PUSHER_CHANNEL, 'pause-ack', {
+  await getPusherServer()?.trigger(PUSHER_CHANNEL, 'pause-ack', {
     id: params.id,
     contestant: pr.contestant,
     action,

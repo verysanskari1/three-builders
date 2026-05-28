@@ -1,7 +1,6 @@
 import type { Config } from 'tailwindcss'
 
 const config: Config = {
-  darkMode: 'class',
   content: [
     './app/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
@@ -10,24 +9,33 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: '#0b0d10',
-        elevated: '#14171c',
-        card: '#1a1e25',
-        accent: '#ff6b35',
-        vibe: '#ec4899',
-        junior: '#14b8a6',
-        senior: '#6366f1',
-        done: '#4ade80',
-        warning: '#fbbf24',
-        danger: '#f87171',
+        page:    '#f8f9fb',
+        surface: '#ffffff',
+        border:  '#e2e5ea',
+        'border-strong': '#c8cdd6',
+        primary:   '#111827',
+        secondary: '#6b7280',
+        muted:     '#9ca3af',
+        accent:      '#2563eb',
+        'accent-bg': '#eff6ff',
+        success:      '#16a34a',
+        'success-bg': '#f0fdf4',
+        warning:      '#d97706',
+        'warning-bg': '#fffbeb',
+        danger:      '#dc2626',
+        'danger-bg': '#fef2f2',
+        vibe:   '#7c3aed',
+        junior: '#0284c7',
+        senior: '#059669',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
-        serif: ['Instrument Serif', 'serif'],
+        sans:    ['Satoshi', 'system-ui', 'sans-serif'],
+        display: ['Newsreader', 'Georgia', 'serif'],
+        mono:    ['"JetBrains Mono"', 'monospace'],
       },
-      animation: {
-        'pulse-slow': 'pulse 3s ease-in-out infinite',
+      boxShadow: {
+        card: '0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.04)',
+        'card-hover': '0 4px 12px 0 rgba(0,0,0,0.08)',
       },
     },
   },

@@ -2,8 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 
 export default function HostLogin() {
   const [password, setPassword] = useState('')
@@ -34,25 +32,27 @@ export default function HostLogin() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-8">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="font-serif text-4xl text-white mb-2">Host View</h1>
-          <p className="text-white/50 text-sm">Password required</p>
-        </div>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <Input
+    <main className="min-h-screen flex items-center justify-center bg-page">
+      <div className="w-full max-w-sm p-8">
+        <h1 className="font-display text-4xl text-primary mb-1">Host</h1>
+        <p className="text-secondary text-sm mb-8">3 Builders — Shoot Day</p>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <input
             type="password"
-            placeholder="Enter host password"
+            placeholder="Password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             autoFocus
-            className="text-center text-lg h-12"
+            className="h-10 w-full rounded-lg border border-border bg-surface px-4 text-sm text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/60"
           />
-          {error && <p className="text-danger text-sm text-center">{error}</p>}
-          <Button type="submit" disabled={loading || !password} size="lg">
-            {loading ? 'Checking…' : 'Enter →'}
-          </Button>
+          {error && <p className="text-danger text-sm">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading || !password}
+            className="h-10 rounded-lg bg-accent text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+          >
+            {loading ? 'Checking…' : 'Enter'}
+          </button>
         </form>
       </div>
     </main>

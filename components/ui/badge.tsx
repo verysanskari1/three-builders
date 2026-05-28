@@ -1,30 +1,26 @@
 import * as React from 'react'
-import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
-const badgeVariants = cva(
-  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2',
-  {
-    variants: {
-      variant: {
-        default: 'border-transparent bg-accent text-white',
-        secondary: 'border-transparent bg-elevated text-white',
-        destructive: 'border-transparent bg-danger text-white',
-        outline: 'text-white border-white/20',
-        success: 'border-transparent bg-done/20 text-done',
-        warning: 'border-transparent bg-warning/20 text-warning',
-      },
-    },
-    defaultVariants: { variant: 'default' },
-  }
-)
+type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'outline' | 'secondary'
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
-
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />
+const styles: Record<BadgeVariant, string> = {
+  default:   'bg-accent-bg text-accent border border-accent/20',
+  success:   'bg-success-bg text-success border border-success/20',
+  warning:   'bg-warning-bg text-warning border border-warning/20',
+  danger:    'bg-danger-bg text-danger border border-danger/20',
+  outline:   'border border-border text-secondary bg-transparent',
+  secondary: 'bg-page text-secondary border border-border',
 }
 
-export { Badge, badgeVariants }
+interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  variant?: BadgeVariant
+}
+
+export function Badge({ className, variant = 'secondary', ...props }: BadgeProps) {
+  return (
+    <span
+      className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', styles[variant], className)}
+      {...props}
+    />
+  )
+}

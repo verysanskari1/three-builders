@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getState, setState } from '@/lib/kv'
-import { pusherServer, PUSHER_CHANNEL } from '@/lib/pusher-server'
+import { getPusherServer, PUSHER_CHANNEL } from '@/lib/pusher-server'
 import { PauseRequest } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
@@ -15,6 +15,6 @@ export async function POST(req: NextRequest) {
   }
   state.pauseRequests = [pauseReq, ...state.pauseRequests]
   await setState(state)
-  await pusherServer.trigger(PUSHER_CHANNEL, 'pause-request', pauseReq)
+  await getPusherServer()?.trigger(PUSHER_CHANNEL, 'pause-request', pauseReq)
   return NextResponse.json(pauseReq)
 }

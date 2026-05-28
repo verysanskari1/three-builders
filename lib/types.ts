@@ -82,4 +82,5 @@ export type AppState = {
     junior: ContestantTask[]
     senior: ContestantTask[]
   }
+  sharedInfo: string
 }

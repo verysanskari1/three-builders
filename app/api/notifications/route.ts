@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getState, setState } from '@/lib/kv'
 import { isHostAuthenticated } from '@/lib/auth'
-import { pusherServer, PUSHER_CHANNEL } from '@/lib/pusher-server'
+import { getPusherServer, PUSHER_CHANNEL } from '@/lib/pusher-server'
 import { Notification } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
@@ -15,10 +15,10 @@ export async function POST(req: NextRequest) {
     text: body.text,
     target: body.target ?? 'all',
     createdAt: Date.now(),
-    expiresAt: Date.now() + (body.durationMs ?? 30000),
+    expiresAt: Date.now() + (body.durationMs ?? 60000),
   }
   state.notifications = [notification, ...state.notifications].slice(0, 50)
   await setState(state)
-  await pusherServer.trigger(PUSHER_CHANNEL, 'notification', notification)
+  await getPusherServer()?.trigger(PUSHER_CHANNEL, 'notification', notification)
   return NextResponse.json(notification)
 }

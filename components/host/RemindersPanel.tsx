@@ -1,10 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Plus, Bell } from 'lucide-react'
 import { Reminder } from '@/lib/types'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
@@ -22,6 +19,7 @@ export default function RemindersPanel({ reminders, onAdd, onDelete }: Props) {
   const [repeatMin, setRepeatMin] = useState(30)
   const [repeatUntil, setRepeatUntil] = useState('')
   const [broadcast, setBroadcast] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
 
   const sorted = [...reminders].sort((a, b) => a.time.localeCompare(b.time))
 
@@ -31,120 +29,59 @@ export default function RemindersPanel({ reminders, onAdd, onDelete }: Props) {
       text: text.trim(),
       time,
       repeatMinutes: repeat ? repeatMin : undefined,
-      repeatUntil: repeat ? repeatUntil || undefined : undefined,
+      repeatUntil: repeat && repeatUntil ? repeatUntil : undefined,
       broadcastToContestants: broadcast,
     })
-    setText('')
-    setTime('')
-    setRepeat(false)
-    setBroadcast(false)
+    setText(''); setTime(''); setRepeat(false); setBroadcast(false); setShowAdd(false)
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 mb-1">
-        <Bell size={14} className="text-warning" />
-        <span className="font-mono text-xs text-white/60 uppercase tracking-wider">Reminders</span>
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-secondary uppercase tracking-wider">Reminders</h3>
+        <button onClick={() => setShowAdd(s => !s)} className="text-xs text-accent hover:underline">
+          {showAdd ? 'Cancel' : '+ Add'}
+        </button>
       </div>
 
-      <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
+      <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
         {sorted.map(r => (
-          <div
-            key={r.id}
-            className={cn(
-              'flex items-start gap-2 px-3 py-2 rounded-lg bg-elevated border border-white/5 text-sm group',
-              r.fired && 'opacity-50'
-            )}
-          >
-            <span className="font-mono text-xs text-accent/80 flex-shrink-0 mt-0.5 w-10">
-              {r.time}
-            </span>
-            <span className="flex-1 text-white/80 text-xs leading-relaxed">{r.text}</span>
+          <div key={r.id} className={cn('flex items-start gap-2 py-1.5 group', r.fired && 'opacity-40')}>
+            <span className="font-mono text-xs text-muted w-10 flex-shrink-0 pt-px">{r.time}</span>
+            <span className="flex-1 text-xs text-primary leading-relaxed">{r.text}</span>
             <div className="flex items-center gap-1 flex-shrink-0">
-              {r.repeatMinutes && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                  ↺{r.repeatMinutes}m
-                </Badge>
-              )}
-              {r.broadcastToContestants && (
-                <Badge variant="warning" className="text-[10px] px-1.5 py-0">
-                  📢
-                </Badge>
-              )}
-              {r.fired && (
-                <Badge variant="success" className="text-[10px] px-1.5 py-0">
-                  fired
-                </Badge>
-              )}
-              <button
-                onClick={() => onDelete(r.id)}
-                className="opacity-0 group-hover:opacity-100 text-white/30 hover:text-danger transition-all"
-              >
-                <X size={12} />
-              </button>
+              {r.repeatMinutes && <Badge variant="outline" className="text-[10px] px-1 py-0">↺{r.repeatMinutes}m</Badge>}
+              {r.broadcastToContestants && <Badge variant="secondary" className="text-[10px] px-1 py-0">all</Badge>}
+              {r.fired && <Badge variant="success" className="text-[10px] px-1 py-0">fired</Badge>}
+              <button onClick={() => onDelete(r.id)} className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger text-sm leading-none transition-all">×</button>
             </div>
           </div>
         ))}
-        {sorted.length === 0 && (
-          <p className="text-white/30 text-xs text-center py-4">No reminders</p>
-        )}
+        {sorted.length === 0 && <p className="text-muted text-xs text-center py-3">No reminders</p>}
       </div>
 
-      {/* Add form */}
-      <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
-        <Input
-          value={text}
-          onChange={e => setText(e.target.value)}
-          placeholder="Reminder text…"
-          className="h-7 text-xs"
-        />
-        <div className="flex gap-2">
-          <Input
-            type="time"
-            value={time}
-            onChange={e => setTime(e.target.value)}
-            className="h-7 text-xs flex-1 font-mono"
-          />
-          <label className="flex items-center gap-1.5 text-xs text-white/50 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={broadcast}
-              onChange={e => setBroadcast(e.target.checked)}
-              className="accent-warning"
-            />
-            📢
+      {showAdd && (
+        <div className="mt-3 pt-3 border-t border-border flex flex-col gap-2">
+          <input value={text} onChange={e => setText(e.target.value)} placeholder="Reminder text…" className="h-8 w-full rounded-md border border-border bg-page px-3 text-xs text-primary placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/30" />
+          <div className="flex gap-2">
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} className="h-8 flex-1 rounded-md border border-border bg-page px-2 text-xs font-mono text-primary focus:outline-none focus:ring-1 focus:ring-accent/30" />
+            <label className="flex items-center gap-1 text-xs text-secondary cursor-pointer">
+              <input type="checkbox" checked={broadcast} onChange={e => setBroadcast(e.target.checked)} className="w-3.5 h-3.5" />
+              Broadcast
+            </label>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-secondary cursor-pointer flex-wrap">
+            <input type="checkbox" checked={repeat} onChange={e => setRepeat(e.target.checked)} className="w-3.5 h-3.5" />
+            Repeat every
+            <input type="number" value={repeatMin} onChange={e => setRepeatMin(Number(e.target.value))} disabled={!repeat} className="h-6 w-12 rounded border border-border bg-page text-center text-xs font-mono focus:outline-none" min={1} />
+            min until
+            <input type="time" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} disabled={!repeat} className="h-6 rounded border border-border bg-page px-1 text-xs font-mono focus:outline-none" />
           </label>
+          <button onClick={handleAdd} disabled={!text.trim() || !time} className="h-8 rounded-md bg-accent text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors">
+            Add reminder
+          </button>
         </div>
-        <label className="flex items-center gap-2 text-xs text-white/50 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={repeat}
-            onChange={e => setRepeat(e.target.checked)}
-            className="accent-accent"
-          />
-          Repeat every
-          <Input
-            type="number"
-            value={repeatMin}
-            onChange={e => setRepeatMin(Number(e.target.value))}
-            disabled={!repeat}
-            className="h-6 w-14 text-xs text-center"
-            min={1}
-          />
-          min until
-          <Input
-            type="time"
-            value={repeatUntil}
-            onChange={e => setRepeatUntil(e.target.value)}
-            disabled={!repeat}
-            className="h-6 text-xs font-mono"
-          />
-        </label>
-        <Button size="sm" onClick={handleAdd} disabled={!text.trim() || !time} className="h-7 text-xs">
-          <Plus size={12} className="mr-1" />
-          Add reminder
-        </Button>
-      </div>
+      )}
     </div>
   )
 }

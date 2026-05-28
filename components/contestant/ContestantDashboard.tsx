@@ -5,39 +5,19 @@ import { AppState, ContestantId, ContestantTask, Notification } from '@/lib/type
 import { formatDuration, formatClockTime, getElapsed, getTimerStatus } from '@/lib/utils'
 import { getPusherClient, PUSHER_CHANNEL } from '@/lib/pusher-client'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
-const CONFIG: Record<ContestantId, { label: string; color: string; borderColor: string; bgColor: string }> = {
-  vibe: {
-    label: 'VIBE CODER',
-    color: 'text-vibe',
-    borderColor: 'border-vibe/40',
-    bgColor: 'bg-vibe/10',
-  },
-  junior: {
-    label: 'JUNIOR DEV',
-    color: 'text-junior',
-    borderColor: 'border-junior/40',
-    bgColor: 'bg-junior/10',
-  },
-  senior: {
-    label: 'SENIOR DEV',
-    color: 'text-senior',
-    borderColor: 'border-senior/40',
-    bgColor: 'bg-senior/10',
-  },
+const CONFIG: Record<ContestantId, { label: string; color: string; border: string }> = {
+  vibe:   { label: 'Vibe Coder',  color: 'text-vibe',   border: 'border-t-vibe' },
+  junior: { label: 'Junior Dev',   color: 'text-junior', border: 'border-t-junior' },
+  senior: { label: 'Senior Dev',   color: 'text-senior', border: 'border-t-senior' },
 }
 
-interface ToastNotification extends Notification {
-  dismissed?: boolean
+interface Toast {
+  id: string
+  text: string
+  isWarning: boolean
+  expiresAt: number
 }
 
 interface Props {
@@ -49,79 +29,71 @@ export default function ContestantDashboard({ id, initialState }: Props) {
   const [state, setState] = useState<AppState>(initialState)
   const [clock, setClock] = useState('')
   const [timerDisplay, setTimerDisplay] = useState('00:00:00')
-  const [toastNotifs, setToastNotifs] = useState<ToastNotification[]>([])
-  const [pauseDialogOpen, setPauseDialogOpen] = useState(false)
+  const [toasts, setToasts] = useState<Toast[]>([])
+  const [pauseOpen, setPauseOpen] = useState(false)
   const [pauseReason, setPauseReason] = useState('')
   const [pauseStatus, setPauseStatus] = useState<'idle' | 'pending' | 'approved' | 'denied'>('idle')
-  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null)
-  const [rulesOpen, setRulesOpen] = useState(false)
+  const [pendingId, setPendingId] = useState<string | null>(null)
   const [notes, setNotes] = useState(initialState.contestantNotes[id] || '')
-  const noteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const taskSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const taskTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const col = CONFIG[id]
 
-  // clock
   useEffect(() => {
     setClock(formatClockTime(new Date()))
     const iv = setInterval(() => setClock(formatClockTime(new Date())), 1000)
     return () => clearInterval(iv)
   }, [])
 
-  // timer display
   useEffect(() => {
-    const iv = setInterval(() => {
-      setTimerDisplay(formatDuration(getElapsed(state.timers[id])))
-    }, 100)
+    const iv = setInterval(() => setTimerDisplay(formatDuration(getElapsed(state.timers[id]))), 100)
     return () => clearInterval(iv)
   }, [state.timers, id])
 
-  // Pusher
   useEffect(() => {
     const client = getPusherClient()
     if (!client) return
-
     const channel = client.subscribe(PUSHER_CHANNEL)
 
     channel.bind('timer-update', (data: { id: ContestantId; timer: AppState['timers']['vibe'] }) => {
-      if (data.id === id) {
-        setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timer } }))
-      }
+      if (data.id === id) setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timer } }))
     })
 
     channel.bind('notification', (notif: Notification) => {
       if (notif.target === 'all' || notif.target === id) {
-        setToastNotifs(prev => [...prev, notif])
-        setTimeout(() => {
-          setToastNotifs(prev => prev.filter(n => n.id !== notif.id))
-        }, notif.expiresAt - notif.createdAt)
+        const isWarning = /ending in|phase \d ending|20 mins|5 minutes/i.test(notif.text)
+        const toast: Toast = { id: notif.id, text: notif.text, isWarning, expiresAt: notif.expiresAt }
+        setToasts(prev => [...prev, toast])
+        const ms = notif.expiresAt - Date.now()
+        if (ms > 0) setTimeout(() => setToasts(prev => prev.filter(t => t.id !== notif.id)), ms)
       }
     })
 
     channel.bind('pause-ack', (data: { id: string; contestant: ContestantId; action: 'approved' | 'denied' }) => {
-      if (data.contestant === id && data.id === pendingRequestId) {
+      if (data.contestant === id && data.id === pendingId) {
         setPauseStatus(data.action)
-        setPendingRequestId(null)
+        setPendingId(null)
         if (data.action === 'approved') {
-          setState(prev => ({
-            ...prev,
-            timers: { ...prev.timers, [id]: { ...prev.timers[id], running: false, startedAt: null } },
-          }))
+          setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: { ...prev.timers[id], running: false, startedAt: null } } }))
         }
         setTimeout(() => setPauseStatus('idle'), 8000)
       }
     })
 
-    return () => {
-      channel.unbind_all()
-      client.unsubscribe(PUSHER_CHANNEL)
-    }
-  }, [id, pendingRequestId])
+    channel.bind('state-update', () => {
+      fetch('/api/state').then(r => r.json()).then((data: AppState) => {
+        setState(data)
+        setNotes(data.contestantNotes[id] || '')
+      })
+    })
 
-  // Polling fallback every 5s
+    return () => { channel.unbind_all(); client.unsubscribe(PUSHER_CHANNEL) }
+  }, [id, pendingId])
+
+  // 5-second polling fallback
   useEffect(() => {
     const iv = setInterval(async () => {
-      const res = await fetch('/api/state')
-      const data: AppState = await res.json()
+      const data: AppState = await fetch('/api/state').then(r => r.json())
       setState(data)
       setNotes(data.contestantNotes[id] || '')
     }, 5000)
@@ -130,41 +102,33 @@ export default function ContestantDashboard({ id, initialState }: Props) {
 
   async function handlePauseRequest() {
     const res = await fetch('/api/pause-requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contestant: id, reason: pauseReason || undefined }),
     })
     const pr = await res.json()
-    setPendingRequestId(pr.id)
+    setPendingId(pr.id)
     setPauseStatus('pending')
-    setPauseDialogOpen(false)
+    setPauseOpen(false)
     setPauseReason('')
   }
 
-  const handleNoteSave = useCallback((value: string) => {
-    if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current)
-    noteSaveTimer.current = setTimeout(() => {
+  const saveNote = useCallback((value: string) => {
+    if (noteTimer.current) clearTimeout(noteTimer.current)
+    noteTimer.current = setTimeout(() => {
       fetch(`/api/contestants/${id}/notes`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: value }),
       })
     }, 500)
   }, [id])
 
-  function handleTaskToggle(taskId: string) {
-    const tasks = state.contestantChecklists[id].map(t =>
-      t.id === taskId ? { ...t, done: !t.done } : t
-    )
-    setState(prev => ({
-      ...prev,
-      contestantChecklists: { ...prev.contestantChecklists, [id]: tasks },
-    }))
-    if (taskSaveTimer.current) clearTimeout(taskSaveTimer.current)
-    taskSaveTimer.current = setTimeout(() => {
+  function toggleTask(taskId: string) {
+    const tasks = state.contestantChecklists[id].map(t => t.id === taskId ? { ...t, done: !t.done } : t)
+    setState(prev => ({ ...prev, contestantChecklists: { ...prev.contestantChecklists, [id]: tasks } }))
+    if (taskTimer.current) clearTimeout(taskTimer.current)
+    taskTimer.current = setTimeout(() => {
       fetch(`/api/contestants/${id}/tasks`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tasks }),
       })
     }, 500)
@@ -172,184 +136,136 @@ export default function ContestantDashboard({ id, initialState }: Props) {
 
   const timer = state.timers[id]
   const status = getTimerStatus(timer)
-  const tasks = state.contestantChecklists[id] || []
-  const tasksDone = tasks.filter(t => t.done).length
-
-  const phaseEndingKeywords = ['ending in 5 minutes', 'phase 1 ending', 'phase 2 ending']
-  const isPhaseWarning = (text: string) =>
-    phaseEndingKeywords.some(k => text.toLowerCase().includes(k))
+  const tasks: ContestantTask[] = state.contestantChecklists[id] || []
+  const done = tasks.filter(t => t.done).length
 
   return (
-    <div className="min-h-screen">
-      {/* Notification toasts */}
-      <div className="fixed top-0 left-0 right-0 z-50 flex flex-col gap-2 p-4">
-        {toastNotifs.map(n => (
+    <div className="min-h-screen bg-page">
+      {/* Notification banners */}
+      <div className="fixed top-0 left-0 right-0 z-50 flex flex-col gap-1.5 p-3 pointer-events-none">
+        {toasts.map(toast => (
           <div
-            key={n.id}
+            key={toast.id}
             className={cn(
-              'flex items-start gap-3 px-5 py-4 rounded-xl border text-white shadow-2xl',
-              isPhaseWarning(n.text)
-                ? 'bg-warning/20 border-warning/60'
-                : 'bg-accent/20 border-accent/60'
+              'flex items-center gap-3 px-4 py-3 rounded-xl border shadow-card-hover text-sm font-medium pointer-events-auto',
+              toast.isWarning
+                ? 'bg-warning-bg border-warning/30 text-warning'
+                : 'bg-accent-bg border-accent/20 text-accent'
             )}
           >
-            <span className="text-xl flex-shrink-0">{isPhaseWarning(n.text) ? '⚠️' : '📢'}</span>
-            <span className="flex-1 font-medium">{n.text}</span>
-            <button
-              onClick={() => setToastNotifs(prev => prev.filter(x => x.id !== n.id))}
-              className="text-white/40 hover:text-white text-sm"
-            >
-              ✕
-            </button>
+            <span className="flex-1">{toast.text}</span>
+            <button onClick={() => setToasts(p => p.filter(t => t.id !== toast.id))} className="opacity-60 hover:opacity-100 text-base leading-none">×</button>
           </div>
         ))}
       </div>
 
-      <div className="max-w-2xl mx-auto p-6 flex flex-col gap-6">
+      <div className="max-w-3xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex items-center justify-between pt-2">
-          <h1 className={cn('font-mono text-2xl font-semibold tracking-widest', col.color)}>
-            {col.label}
-          </h1>
-          <div className="font-mono text-xl text-white/60 tabular-nums">{clock}</div>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className={cn('font-display text-2xl font-semibold', col.color)}>{col.label}</h1>
+          <div className="font-display text-xl text-secondary tabular-nums">{clock}</div>
         </div>
 
-        {/* Big Timer */}
-        <div className={cn('rounded-2xl border-2 p-8 flex flex-col items-center gap-4', col.borderColor, col.bgColor)}>
-          <div className={cn('font-mono text-7xl md:text-8xl font-semibold tabular-nums', col.color)}>
+        {/* Timer block */}
+        <div className={cn('bg-surface rounded-2xl border border-t-4 border-border shadow-card p-8 text-center mb-6', col.border)}>
+          <div className="font-display text-7xl md:text-8xl text-primary tabular-nums tracking-tight mb-3">
             {timerDisplay}
           </div>
 
-          <Badge
-            variant={status === 'running' ? 'success' : status === 'paused' ? 'warning' : 'secondary'}
-            className="font-mono text-sm px-4 py-1"
-          >
-            {status === 'running' ? '● RUNNING' : status === 'paused' ? '⏸ PAUSED' : '■ STOPPED'}
-          </Badge>
+          <div className={cn(
+            'inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full mb-4',
+            status === 'running' ? 'bg-success-bg text-success' : status === 'paused' ? 'bg-warning-bg text-warning' : 'bg-page text-muted border border-border'
+          )}>
+            <span className={cn('w-1.5 h-1.5 rounded-full', status === 'running' ? 'bg-success' : status === 'paused' ? 'bg-warning' : 'bg-muted')} />
+            {status === 'running' ? 'Running' : status === 'paused' ? 'Paused' : 'Stopped'}
+          </div>
 
           {pauseStatus === 'approved' && (
-            <div className="px-4 py-2 rounded-lg bg-done/20 border border-done/40 text-done text-sm font-medium">
-              ✓ Paused — host approved
+            <div className="text-sm text-success bg-success-bg border border-success/20 rounded-lg px-4 py-2 mb-3 mx-auto max-w-xs">
+              Paused — host approved
             </div>
           )}
           {pauseStatus === 'denied' && (
-            <div className="px-4 py-2 rounded-lg bg-danger/20 border border-danger/40 text-danger text-sm font-medium">
-              ✗ Pause denied — keep going
+            <div className="text-sm text-danger bg-danger-bg border border-danger/20 rounded-lg px-4 py-2 mb-3 mx-auto max-w-xs">
+              Pause denied — keep going
             </div>
           )}
 
-          <Button
-            onClick={() => {
-              if (pauseStatus === 'pending') return
-              if (pauseStatus !== 'idle') { setPauseStatus('idle'); return }
-              setPauseDialogOpen(true)
-            }}
+          <button
+            onClick={() => { if (pauseStatus !== 'idle' && pauseStatus !== 'pending') { setPauseStatus('idle') } else if (pauseStatus === 'idle') setPauseOpen(true) }}
             disabled={pauseStatus === 'pending'}
-            variant="outline"
             className={cn(
-              'font-mono',
-              pauseStatus === 'pending' && 'opacity-50 cursor-not-allowed',
-              pauseStatus === 'idle' && `border-${id === 'vibe' ? 'vibe' : id === 'junior' ? 'junior' : 'senior'}/40 text-white/70`
+              'h-9 px-5 rounded-lg text-sm border transition-colors',
+              pauseStatus === 'pending'
+                ? 'border-border text-muted cursor-not-allowed opacity-50'
+                : 'border-border text-secondary hover:text-primary hover:border-border-strong bg-surface'
             )}
           >
             {pauseStatus === 'pending' ? 'Pause requested…' : 'Request pause'}
-          </Button>
-        </div>
-
-        {/* Recording checklist */}
-        <div className="rounded-xl border border-white/8 bg-card p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-mono text-xs text-white/50 uppercase tracking-wider">
-              Recording checklist
-            </h2>
-            <span className="font-mono text-xs text-white/40">
-              {tasksDone}/{tasks.length}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {tasks.map(task => (
-              <label
-                key={task.id}
-                className={cn(
-                  'flex items-start gap-3 px-3 py-2 rounded cursor-pointer hover:bg-white/3 transition-colors',
-                  task.done && 'opacity-60'
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={task.done}
-                  onChange={() => handleTaskToggle(task.id)}
-                  className="w-4 h-4 mt-0.5 accent-done flex-shrink-0"
-                />
-                <span className={cn('text-sm', task.done && 'line-through text-white/40')}>
-                  {task.text}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* Notes */}
-        <div className="rounded-xl border border-white/8 bg-card p-5">
-          <h2 className="font-mono text-xs text-white/50 uppercase tracking-wider mb-3">
-            Notes — passwords, logins, anything
-          </h2>
-          <Textarea
-            value={notes}
-            onChange={e => {
-              setNotes(e.target.value)
-              handleNoteSave(e.target.value)
-            }}
-            onBlur={() => handleNoteSave(notes)}
-            placeholder="Passwords, logins, API keys, anything you don't want to lose…"
-            className="font-mono text-sm min-h-[160px] bg-elevated/50"
-            spellCheck={false}
-          />
-        </div>
-
-        {/* Rules card */}
-        <div className="rounded-xl border border-white/8 bg-card overflow-hidden">
-          <button
-            onClick={() => setRulesOpen(o => !o)}
-            className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/3 transition-colors"
-          >
-            <h2 className="font-mono text-xs text-white/50 uppercase tracking-wider">
-              Rules of the challenge
-            </h2>
-            <span className="text-white/30 text-sm">{rulesOpen ? '▲' : '▼'}</span>
           </button>
-          {rulesOpen && (
-            <div className="px-5 pb-5 text-white/70 text-sm leading-relaxed border-t border-white/5">
-              <p className="text-white/40 italic mt-3">
-                Rules will be revealed by the host at 10:30 AM. Stay tuned.
-              </p>
+        </div>
+
+        {/* Two columns */}
+        <div className="grid md:grid-cols-2 gap-4">
+          {/* Recording checklist */}
+          <div className="bg-surface rounded-xl border border-border shadow-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider">Recording checklist</h2>
+              <span className="text-xs text-muted font-mono">{done}/{tasks.length}</span>
             </div>
-          )}
+            <div className="flex flex-col gap-0.5">
+              {tasks.map(task => (
+                <label key={task.id} className={cn('flex items-start gap-2.5 px-1 py-1.5 rounded cursor-pointer hover:bg-page transition-colors', task.done && 'opacity-50')}>
+                  <input type="checkbox" checked={task.done} onChange={() => toggleTask(task.id)} className="mt-0.5" />
+                  <span className={cn('text-sm text-primary leading-snug', task.done && 'line-through text-muted')}>{task.text}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div className="flex flex-col gap-4">
+            {/* Shared info from host */}
+            {state.sharedInfo && (
+              <div className="bg-surface rounded-xl border border-border shadow-card p-4">
+                <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider mb-2">From host</h2>
+                <pre className="text-xs font-mono text-primary whitespace-pre-wrap leading-relaxed">{state.sharedInfo}</pre>
+              </div>
+            )}
+
+            {/* Private notes */}
+            <div className="bg-surface rounded-xl border border-border shadow-card p-4">
+              <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider mb-2">Your notes</h2>
+              <textarea
+                value={notes}
+                onChange={e => { setNotes(e.target.value); saveNote(e.target.value) }}
+                onBlur={() => saveNote(notes)}
+                placeholder="Passwords, logins, API keys, links…"
+                className="w-full min-h-[140px] text-xs font-mono text-primary bg-page border border-border rounded-lg px-3 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/60 placeholder:text-muted"
+                spellCheck={false}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Pause request dialog */}
-      <Dialog open={pauseDialogOpen} onOpenChange={setPauseDialogOpen}>
-        <DialogContent className="max-w-sm">
+      {/* Pause dialog */}
+      <Dialog open={pauseOpen} onOpenChange={setPauseOpen}>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Request a pause</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-white/60">
-            Send a pause request to the host. Optionally explain why.
-          </p>
-          <Textarea
+          <p className="text-sm text-secondary mb-3">Host will see your request and can approve or deny it.</p>
+          <textarea
             value={pauseReason}
             onChange={e => setPauseReason(e.target.value)}
             placeholder="Reason (optional)"
-            className="min-h-[80px]"
+            className="w-full min-h-[80px] text-sm bg-page border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-accent/30 mb-4"
+            autoFocus
           />
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setPauseDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handlePauseRequest}>
-              Send request
-            </Button>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setPauseOpen(false)} className="h-9 px-4 rounded-lg text-sm border border-border text-secondary hover:bg-page transition-colors">Cancel</button>
+            <button onClick={handlePauseRequest} className="h-9 px-4 rounded-lg text-sm bg-accent text-white hover:bg-blue-700 transition-colors">Send request</button>
           </div>
         </DialogContent>
       </Dialog>
