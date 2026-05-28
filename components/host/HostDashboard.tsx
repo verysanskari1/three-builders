@@ -68,6 +68,8 @@ export default function HostDashboard({ initialState }: Props) {
   // Pusher subscriptions
   useEffect(() => {
     const client = getPusherClient()
+    if (!client) return
+
     const channel = client.subscribe(PUSHER_CHANNEL)
 
     channel.bind('timer-update', (data: { id: ContestantId; timer: AppState['timers']['vibe'] }) => {
@@ -78,7 +80,6 @@ export default function HostDashboard({ initialState }: Props) {
     })
 
     channel.bind('pause-request', () => {
-      // refresh state from server to get the latest pause request
       fetch('/api/state').then(r => r.json()).then(setState)
     })
 

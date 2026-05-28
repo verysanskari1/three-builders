@@ -78,6 +78,8 @@ export default function ContestantDashboard({ id, initialState }: Props) {
   // Pusher
   useEffect(() => {
     const client = getPusherClient()
+    if (!client) return
+
     const channel = client.subscribe(PUSHER_CHANNEL)
 
     channel.bind('timer-update', (data: { id: ContestantId; timer: AppState['timers']['vibe'] }) => {
