@@ -411,6 +411,7 @@ const PM_ROLES: PMRole[] = [
 
 const emptyPhaseTimer = () => ({ elapsed: 0, running: false, startedAt: null })
 const emptyContestantTimers = () => ({
+  currentPhase: 'plan' as PhaseId,
   plan:   emptyPhaseTimer(),
   build1: emptyPhaseTimer(),
   build2: emptyPhaseTimer(),

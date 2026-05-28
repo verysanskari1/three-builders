@@ -25,6 +25,7 @@ export type TimerState = {
 export type PhaseId = 'plan' | 'build1' | 'build2'
 
 export type ContestantTimers = {
+  currentPhase: PhaseId
   plan: TimerState
   build1: TimerState
   build2: TimerState

@@ -7,7 +7,6 @@ import {
   ContestantTask,
   Notification,
   PhaseId,
-  PHASE_ORDER,
 } from '@/lib/types'
 import {
   formatDuration,
@@ -47,7 +46,6 @@ export default function ContestantDashboard({ id, initialState }: Props) {
   const [pauseStatus, setPauseStatus] = useState<'idle' | 'pending' | 'approved' | 'denied'>('idle')
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [notes, setNotes] = useState(initialState.contestantNotes[id] || '')
-  const [showAllTasks, setShowAllTasks] = useState(false)
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const taskTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const col = CONFIG[id]
@@ -180,9 +178,8 @@ export default function ContestantDashboard({ id, initialState }: Props) {
   const currentPhase: PhaseId = getCurrentPhase(timers)
   const currentInfo = getPhaseTimerInfo(timers, currentPhase)
   const allTasks: ContestantTask[] = state.contestantChecklists[id] || []
-  const visibleTasks = showAllTasks
-    ? allTasks
-    : allTasks.filter(t => !t.phase || t.phase === currentPhase)
+  // Show items tagged with the host-selected current phase, plus untagged items.
+  const visibleTasks = allTasks.filter(t => !t.phase || t.phase === currentPhase)
   const done = visibleTasks.filter(t => t.done).length
 
   return (
@@ -277,36 +274,11 @@ export default function ContestantDashboard({ id, initialState }: Props) {
           </button>
         </div>
 
-        {/* Phase strip — quick view of all 3 phases */}
-        <div className="grid grid-cols-3 gap-2 mb-6">
-          {PHASE_ORDER.map(p => {
-            const info = getPhaseTimerInfo(timers, p)
-            const isCurrent = p === currentPhase
-            return (
-              <div
-                key={p}
-                className={cn(
-                  'rounded-lg border p-2 text-center',
-                  isCurrent ? 'border-border-strong bg-surface' : 'border-border bg-surface/50'
-                )}
-              >
-                <div className="text-[10px] uppercase tracking-wider text-muted mb-0.5">{info.name}</div>
-                <div className="font-display text-base text-primary tabular-nums">{formatDuration(info.elapsed)}</div>
-                <div className="text-[10px] text-muted">
-                  {info.status === 'running' ? '● Running' :
-                    info.status === 'done' ? '✓ Done' :
-                    info.status === 'paused' ? 'Paused' : 'Not started'}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
         <div className="grid md:grid-cols-2 gap-4">
           <div className="bg-surface rounded-xl border border-border shadow-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider">
-                {showAllTasks ? 'All recording items' : `${currentInfo.name} checklist`}
+                {currentInfo.name} checklist
               </h2>
               <span className="text-xs text-muted font-mono">{done}/{visibleTasks.length}</span>
             </div>
@@ -321,12 +293,6 @@ export default function ContestantDashboard({ id, initialState }: Props) {
                 <p className="text-xs text-muted text-center py-2">No items for this phase.</p>
               )}
             </div>
-            <button
-              onClick={() => setShowAllTasks(s => !s)}
-              className="mt-3 text-xs text-muted hover:text-primary transition-colors"
-            >
-              {showAllTasks ? '▼ Show current phase only' : '▶ Show all phases'}
-            </button>
           </div>
 
           <div className="flex flex-col gap-4">

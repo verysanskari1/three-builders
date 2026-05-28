@@ -74,14 +74,7 @@ export function getPhaseTimerInfo(timers: ContestantTimers, phase: PhaseId): Pha
   }
 }
 
-// Active phase = the running one, else first incomplete one, else 'build2'.
-export function getCurrentPhase(timers: ContestantTimers): PhaseId {
-  if (!timers) return 'plan'
-  for (const p of PHASE_ORDER) {
-    if (timers[p]?.running) return p
-  }
-  for (const p of PHASE_ORDER) {
-    if (getElapsed(timers[p]) < PHASE_DURATIONS[p]) return p
-  }
-  return 'build2'
+// Host-controlled current phase, stored on the contestant's timers object.
+export function getCurrentPhase(timers: ContestantTimers | undefined): PhaseId {
+  return timers?.currentPhase ?? 'plan'
 }

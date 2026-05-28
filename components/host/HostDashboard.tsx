@@ -179,12 +179,12 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000)
   }
 
-  async function toggleTimer(id: ContestantId, phase: PhaseId) {
+  async function toggleTimer(id: ContestantId) {
     try {
       const res = await fetch(`/api/timers/${id}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phase }),
+        body: JSON.stringify({}),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -198,9 +198,26 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     }
   }
 
-  async function resetTimer(id: ContestantId, phase: PhaseId) {
+  async function resetTimer(id: ContestantId) {
     try {
       const res = await fetch(`/api/timers/${id}/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timers } }))
+      const phase = data.phase as PhaseId
+      for (const m of PHASE_MILESTONES[phase] || []) {
+        milestoneFired.current.delete(`${id}-${phase}-${m.atMs}`)
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function switchPhase(id: ContestantId, phase: PhaseId) {
+    try {
+      const res = await fetch(`/api/timers/${id}/phase`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phase }),
@@ -208,10 +225,6 @@ export default function HostDashboard({ initialState }: { initialState: AppState
       if (!res.ok) return
       const data = await res.json()
       setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timers } }))
-      // Clear milestone flags for this contestant+phase only.
-      for (const m of PHASE_MILESTONES[phase] || []) {
-        milestoneFired.current.delete(`${id}-${phase}-${m.atMs}`)
-      }
     } catch { /* ignore */ }
   }
 
@@ -286,8 +299,9 @@ export default function HostDashboard({ initialState }: { initialState: AppState
               id={id}
               timers={state.timers[id]}
               pendingRequest={pendingRequests.find(r => r.contestant === id)}
-              onToggle={phase => toggleTimer(id, phase)}
-              onReset={phase => resetTimer(id, phase)}
+              onToggle={() => toggleTimer(id)}
+              onReset={() => resetTimer(id)}
+              onSwitchPhase={phase => switchPhase(id, phase)}
               onAck={ackPauseRequest}
             />
           ))}

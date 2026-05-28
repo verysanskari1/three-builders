@@ -1,21 +1,27 @@
-import { kv } from '@vercel/kv'
-import { AppState } from './types'
+import { createClient } from '@vercel/kv'
+import { AppState, PhaseId } from './types'
 import { getSeedState } from './seed'
 
 const KEY = 'shoot:state'
 
-// In-memory fallback used when Vercel KV isn't configured or throws.
-// Lives on globalThis so it survives Next.js HMR / module re-evals within
-// the same process. On Vercel this means each warm function instance shares
-// state across requests — good enough for a single-event single-host shoot day.
-const g = globalThis as unknown as { __shoot_state__?: AppState }
-
-function hasKV(): boolean {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
+// Build a KV client from whichever env vars are present.
+//   - Vercel KV (legacy):   KV_REST_API_URL  / KV_REST_API_TOKEN
+//   - Upstash Redis direct: UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
+function pickEnv(): { url: string; token: string } | null {
+  const url   = process.env.KV_REST_API_URL   || process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
+  if (url && token) return { url, token }
+  return null
 }
 
+const env = pickEnv()
+const kv = env ? createClient({ url: env.url, token: env.token }) : null
+
+// In-memory fallback for when no KV is configured or KV throws.
+const g = globalThis as unknown as { __shoot_state__?: AppState }
+
 async function tryKVGet(): Promise<AppState | null> {
-  if (!hasKV()) return null
+  if (!kv) return null
   try {
     return await kv.get<AppState>(KEY)
   } catch (e) {
@@ -25,24 +31,27 @@ async function tryKVGet(): Promise<AppState | null> {
 }
 
 async function tryKVSet(state: AppState): Promise<void> {
-  if (!hasKV()) return
+  if (!kv) return
   try {
     await kv.set(KEY, state)
   } catch (e) {
-    console.error('[kv] set failed, state only persisted in memory:', e)
+    console.error('[kv] set failed, state only in memory:', e)
   }
 }
 
-// Migrate older stored state shapes so reads never crash. In particular,
-// old data stored a single TimerState per contestant; the new shape is
-// { plan, build1, build2 } per contestant.
+// Backfill missing fields so older stored state shapes never crash on read.
 function migrate(data: AppState): AppState {
   const seed = getSeedState()
   function fixTimers(t: unknown): typeof seed.timers.vibe {
     if (t && typeof t === 'object' && 'plan' in (t as object)) {
-      return t as typeof seed.timers.vibe
+      const tt = t as Partial<typeof seed.timers.vibe>
+      return {
+        currentPhase: (tt.currentPhase ?? 'plan') as PhaseId,
+        plan:   tt.plan   ?? seed.timers.vibe.plan,
+        build1: tt.build1 ?? seed.timers.vibe.build1,
+        build2: tt.build2 ?? seed.timers.vibe.build2,
+      }
     }
-    // Old shape or missing — start fresh.
     return seed.timers.vibe
   }
   return {
@@ -71,18 +80,13 @@ function migrate(data: AppState): AppState {
 }
 
 export async function getState(): Promise<AppState> {
-  // 1. Try KV
   const kvData = await tryKVGet()
   if (kvData) {
     const migrated = migrate(kvData)
     g.__shoot_state__ = migrated
     return migrated
   }
-  // 2. Try memory
-  if (g.__shoot_state__) {
-    return g.__shoot_state__
-  }
-  // 3. Seed
+  if (g.__shoot_state__) return g.__shoot_state__
   const seed = getSeedState()
   g.__shoot_state__ = seed
   await tryKVSet(seed)
