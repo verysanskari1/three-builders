@@ -65,9 +65,27 @@ export default function HostDashboard({ initialState }: { initialState: AppState
       setState(prev => ({ ...prev, timers: { ...prev.timers, [data.id]: data.timer } }))
     })
     channel.bind('pause-request', () => {
-      fetch('/api/state').then(r => r.json()).then(setState)
+      fetch('/api/state').then(r => r.json()).then(setState).catch(() => {})
     })
     return () => { channel.unbind_all(); client.unsubscribe(PUSHER_CHANNEL) }
+  }, [])
+
+  // 3-second polling fallback so pause requests and timer state stay in sync
+  // even when Pusher is unavailable or misconfigured.
+  useEffect(() => {
+    const iv = setInterval(async () => {
+      try {
+        const res = await fetch('/api/state')
+        if (!res.ok) return
+        const data: AppState = await res.json()
+        setState(prev => ({
+          ...prev,
+          timers: data.timers,
+          pauseRequests: data.pauseRequests,
+        }))
+      } catch { /* ignore */ }
+    }, 3000)
+    return () => clearInterval(iv)
   }, [])
 
   // Phase milestone check every 10s

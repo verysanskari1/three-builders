@@ -106,15 +106,27 @@ export default function ContestantDashboard({ id, initialState }: Props) {
   }, [id])
 
   async function handlePauseRequest() {
-    const res = await fetch('/api/pause-requests', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contestant: id, reason: pauseReason || undefined }),
-    })
-    const pr = await res.json()
-    setPendingId(pr.id)
-    setPauseStatus('pending')
-    setPauseOpen(false)
-    setPauseReason('')
+    try {
+      const res = await fetch('/api/pause-requests', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contestant: id, reason: pauseReason || undefined }),
+      })
+      if (!res.ok) {
+        const errToast: Toast = { id: `err-${Date.now()}`, text: 'Could not send pause request. Try again.', isWarning: true, expiresAt: Date.now() + 5000 }
+        setToasts(prev => [...prev, errToast])
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== errToast.id)), 5000)
+        return
+      }
+      const pr = await res.json()
+      setPendingId(pr.id)
+      setPauseStatus('pending')
+      setPauseOpen(false)
+      setPauseReason('')
+    } catch {
+      const errToast: Toast = { id: `err-${Date.now()}`, text: 'Network error sending pause request.', isWarning: true, expiresAt: Date.now() + 5000 }
+      setToasts(prev => [...prev, errToast])
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== errToast.id)), 5000)
+    }
   }
 
   const saveNote = useCallback((value: string) => {
