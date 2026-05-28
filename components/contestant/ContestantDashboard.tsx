@@ -205,12 +205,12 @@ export default function ContestantDashboard({ id, initialState }: Props) {
 
           {pauseStatus === 'approved' && (
             <div className="text-sm text-success bg-success-bg border border-success/20 rounded-lg px-4 py-2 mb-3 mx-auto max-w-xs">
-              Paused — host approved
+              Paused. Host approved.
             </div>
           )}
           {pauseStatus === 'denied' && (
             <div className="text-sm text-danger bg-danger-bg border border-danger/20 rounded-lg px-4 py-2 mb-3 mx-auto max-w-xs">
-              Pause denied — keep going
+              Pause denied. Keep going.
             </div>
           )}
 

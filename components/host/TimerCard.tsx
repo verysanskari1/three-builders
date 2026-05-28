@@ -129,7 +129,7 @@ export default function TimerCard({ id, timer, pendingRequest, onToggle, onReset
         <Dialog open={pauseOpen} onOpenChange={setPauseOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Pause requested — {LABELS[id]}</DialogTitle>
+              <DialogTitle>Pause requested · {LABELS[id]}</DialogTitle>
               <DialogDescription>
                 {pendingRequest.reason ? `"${pendingRequest.reason}"` : 'No reason given.'}
               </DialogDescription>

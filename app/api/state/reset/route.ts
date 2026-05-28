@@ -1,13 +1,19 @@
 import { NextResponse } from 'next/server'
 import { resetState } from '@/lib/kv'
 import { isHostAuthenticated } from '@/lib/auth'
-import { getPusherServer, PUSHER_CHANNEL } from '@/lib/pusher-server'
+import { safeTrigger } from '@/lib/pusher-server'
 
 export async function POST() {
   if (!isHostAuthenticated()) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const state = await resetState()
-  await getPusherServer()?.trigger(PUSHER_CHANNEL, 'state-reset', {})
-  return NextResponse.json(state)
+  try {
+    const state = await resetState()
+    await safeTrigger('state-reset', {})
+    await safeTrigger('state-update', {})
+    return NextResponse.json(state)
+  } catch (e) {
+    console.error('[state/reset] failed:', e)
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+  }
 }

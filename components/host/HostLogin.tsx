@@ -35,7 +35,7 @@ export default function HostLogin() {
     <main className="min-h-screen flex items-center justify-center bg-page">
       <div className="w-full max-w-sm p-8">
         <h1 className="font-display text-4xl text-primary mb-1">Host</h1>
-        <p className="text-secondary text-sm mb-8">3 Builders — Shoot Day</p>
+        <p className="text-secondary text-sm mb-8">3 Builders. Shoot Day.</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <input
             type="password"

@@ -6,7 +6,7 @@ export default function LandingPage() {
       <div className="w-full max-w-lg">
         <div className="mb-10">
           <h1 className="font-display text-5xl text-primary mb-1">3 Builders</h1>
-          <p className="text-secondary text-sm">Shoot Day — Friday, 29 May 2026</p>
+          <p className="text-secondary text-sm">Shoot Day · Friday, 29 May 2026</p>
         </div>
 
         <div className="flex flex-col gap-3">
@@ -16,7 +16,7 @@ export default function LandingPage() {
           >
             <div>
               <div className="font-semibold text-primary">Host view</div>
-              <div className="text-sm text-secondary mt-0.5">Full control — password required</div>
+              <div className="text-sm text-secondary mt-0.5">Full control. Password required.</div>
             </div>
             <span className="text-muted">→</span>
           </Link>

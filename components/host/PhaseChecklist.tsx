@@ -63,7 +63,7 @@ function TaskRow({
         </button>
       </div>
 
-      {/* Note — expandable textarea */}
+      {/* Note: expandable textarea */}
       {noteOpen ? (
         <div className="ml-6 mt-1.5">
           <textarea

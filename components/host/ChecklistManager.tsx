@@ -46,7 +46,7 @@ export default function ChecklistManager({ items, onAdd, onRemove }: Props) {
           )
         })}
         {items.length === 0 && (
-          <p className="text-xs text-muted text-center py-2">No items — add one below</p>
+          <p className="text-xs text-muted text-center py-2">No items yet. Add one below.</p>
         )}
       </div>
 

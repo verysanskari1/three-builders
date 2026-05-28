@@ -28,7 +28,7 @@ export default function SharedInfoPanel({ value, onChange }: Props) {
       <textarea
         value={local}
         onChange={e => handleChange(e.target.value)}
-        placeholder="WiFi password, shared logins, API keys, links — anything all contestants need…"
+        placeholder="WiFi password, shared logins, API keys, links. Anything all contestants need."
         className="w-full min-h-[100px] text-xs font-mono text-primary bg-page border border-border rounded-lg px-3 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/60 placeholder:text-muted"
         rows={5}
       />

@@ -24,15 +24,15 @@ function playBeep() {
 
 // Phase milestones: [elapsedMs, message, targetContestant (or 'all')]
 const MILESTONES: [number, string][] = [
-  [25 * 60 * 1000,   'Plan Phase ending in 5 minutes — wrap up your plan'],
-  [30 * 60 * 1000,   'Plan Phase done! Build Phase 1 starts now'],
-  [90 * 60 * 1000,   '1 hour into Build Phase 1 — keep it up!'],
-  [150 * 60 * 1000,  '1.5 hours in — halfway through the build phases'],
-  [175 * 60 * 1000,  'Build Phase 1 ending in 5 minutes'],
-  [180 * 60 * 1000,  'Build Phase 2 starting now — final stretch!'],
-  [240 * 60 * 1000,  '1 hour left — start wrapping up loose ends'],
-  [295 * 60 * 1000,  '5 minutes left — final push!'],
-  [300 * 60 * 1000,  "Time's up! Stop building"],
+  [25 * 60 * 1000,   'Plan Phase ending in 5 minutes. Wrap up your plan.'],
+  [30 * 60 * 1000,   'Plan Phase done. Build Phase 1 starts now.'],
+  [90 * 60 * 1000,   '1 hour into Build Phase 1. Keep it up.'],
+  [150 * 60 * 1000,  '1.5 hours in. Halfway through the build phases.'],
+  [175 * 60 * 1000,  'Build Phase 1 ending in 5 minutes.'],
+  [180 * 60 * 1000,  'Build Phase 2 starting now. Final stretch.'],
+  [240 * 60 * 1000,  '1 hour left. Start wrapping up loose ends.'],
+  [295 * 60 * 1000,  '5 minutes left. Final push.'],
+  [300 * 60 * 1000,  "Time's up. Stop building."],
 ]
 
 interface Toast { id: string; text: string }
@@ -210,7 +210,7 @@ export default function HostDashboard({ initialState }: { initialState: AppState
         <div className="flex items-end justify-between mb-5">
           <div>
             <h1 className="font-display text-3xl text-primary leading-tight">3 Builders</h1>
-            <p className="text-sm text-secondary mt-0.5">Shoot Day — Friday, 29 May 2026</p>
+            <p className="text-sm text-secondary mt-0.5">Friday, 29 May 2026</p>
           </div>
           <div className="font-display text-2xl text-primary tabular-nums">{clock}</div>
         </div>
@@ -264,7 +264,7 @@ export default function HostDashboard({ initialState }: { initialState: AppState
                   : 'w-full h-8 text-xs rounded-lg border border-danger/50 bg-danger-bg text-danger font-medium'
                 }
               >
-                {resetConfirm === 0 ? 'Reset everything' : 'Click again — wipes all state'}
+                {resetConfirm === 0 ? 'Reset everything' : 'Click again to wipe all state'}
               </button>
             </div>
           </div>
