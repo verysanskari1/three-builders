@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getState, setState } from '@/lib/kv'
 import { isHostAuthenticated } from '@/lib/auth'
 import { safeTrigger } from '@/lib/pusher-server'
-import { ContestantId } from '@/lib/types'
+import { ContestantId, PhaseId, PHASE_ORDER } from '@/lib/types'
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   if (!isHostAuthenticated()) {
@@ -13,24 +13,30 @@ export async function POST(
   }
   try {
     const id = params.id as ContestantId
+    const body = await req.json().catch(() => ({}))
+    const phase = body.phase as PhaseId
+    if (!PHASE_ORDER.includes(phase)) {
+      return NextResponse.json({ error: 'Invalid phase' }, { status: 400 })
+    }
     const state = await getState()
-    const timer = state.timers[id]
-    if (!timer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const phaseTimer = state.timers[id]?.[phase]
+    if (!phaseTimer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const now = Date.now()
-    if (timer.running) {
-      state.timers[id] = {
-        elapsed: timer.elapsed + (now - (timer.startedAt ?? now)),
+    let next
+    if (phaseTimer.running) {
+      next = {
+        elapsed: phaseTimer.elapsed + (now - (phaseTimer.startedAt ?? now)),
         running: false,
         startedAt: null,
       }
     } else {
-      state.timers[id] = { ...timer, running: true, startedAt: now }
+      next = { ...phaseTimer, running: true, startedAt: now }
     }
-
+    state.timers[id][phase] = next
     await setState(state)
-    await safeTrigger('timer-update', { id, timer: state.timers[id] })
-    return NextResponse.json(state.timers[id])
+    await safeTrigger('timer-update', { id, phase, timer: next, timers: state.timers[id] })
+    return NextResponse.json({ phase, timer: next, timers: state.timers[id] })
   } catch (e) {
     console.error('[timers/toggle] failed:', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

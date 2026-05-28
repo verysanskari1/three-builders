@@ -1,4 +1,4 @@
-import { AppState, Phase, Task, Reminder, PMRole, ContestantTask } from './types'
+import { AppState, Phase, Task, Reminder, PMRole, ContestantTask, PhaseId } from './types'
 
 let taskCounter = 0
 function t(text: string, owner: '' | 'Kanishkar' | 'Sanskar' | 'Shared', note: string): Task {
@@ -6,19 +6,26 @@ function t(text: string, owner: '' | 'Kanishkar' | 'Sanskar' | 'Shared', note: s
   return { id: `t${taskCounter}`, text, owner, done: false, note }
 }
 
-// Build-room-only recording checklist
-const RECORDING_CHECKLIST: ContestantTask[] = [
-  'Introduced yourself to camera before starting',
-  'Walked through your plan out loud before writing any code',
-  'Talked to camera just before the first prompt',
-  'Narrated what you were doing during the build',
-  'Reacted on camera when something went wrong',
-  'Reacted on camera when the AI did something impressive',
-  'Did a mid-build check-in: how is it going?',
-  'Talked to camera after a major milestone was hit',
-  'Demoed the final build to camera',
-  'Gave your final confidence rating on camera',
-].map((text, i) => ({ id: `ct${i + 1}`, text, done: false }))
+// Recording checklist tagged by phase. Items without a phase show in every phase.
+type SeedItem = { text: string; phase?: PhaseId }
+const RECORDING_CHECKLIST_SEED: SeedItem[] = [
+  { text: 'Introduced yourself to camera before starting',                    phase: 'plan' },
+  { text: 'Walked through your plan out loud before writing any code',        phase: 'plan' },
+  { text: 'Talked to camera just before the first prompt',                    phase: 'plan' },
+  { text: 'Narrated what you were doing during the build',                    phase: 'build1' },
+  { text: 'Reacted on camera when something went wrong',                      phase: 'build1' },
+  { text: 'Reacted on camera when the AI did something impressive',           phase: 'build1' },
+  { text: 'Did a mid-build check-in: how is it going?',                       phase: 'build1' },
+  { text: 'Talked to camera after a major milestone was hit',                 phase: 'build2' },
+  { text: 'Demoed the final build to camera',                                 phase: 'build2' },
+  { text: 'Gave your final confidence rating on camera',                      phase: 'build2' },
+]
+const RECORDING_CHECKLIST: ContestantTask[] = RECORDING_CHECKLIST_SEED.map((item, i) => ({
+  id: `ct${i + 1}`,
+  text: item.text,
+  phase: item.phase,
+  done: false,
+}))
 
 const PHASES: Phase[] = [
   {
@@ -402,6 +409,13 @@ const PM_ROLES: PMRole[] = [
   },
 ]
 
+const emptyPhaseTimer = () => ({ elapsed: 0, running: false, startedAt: null })
+const emptyContestantTimers = () => ({
+  plan:   emptyPhaseTimer(),
+  build1: emptyPhaseTimer(),
+  build2: emptyPhaseTimer(),
+})
+
 export function getSeedState(): AppState {
   taskCounter = 0
   return {
@@ -409,9 +423,9 @@ export function getSeedState(): AppState {
     reminders: REMINDERS,
     pmRoles: PM_ROLES,
     timers: {
-      vibe:   { elapsed: 0, running: false, startedAt: null },
-      junior: { elapsed: 0, running: false, startedAt: null },
-      senior: { elapsed: 0, running: false, startedAt: null },
+      vibe:   emptyContestantTimers(),
+      junior: emptyContestantTimers(),
+      senior: emptyContestantTimers(),
     },
     notifications: [],
     pauseRequests: [],

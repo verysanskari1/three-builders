@@ -1,16 +1,28 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { AppState, ContestantId, ContestantTask, Notification } from '@/lib/types'
-import { formatDuration, formatClockTime, getElapsed, getTimerStatus, getPhaseInfo } from '@/lib/utils'
+import {
+  AppState,
+  ContestantId,
+  ContestantTask,
+  Notification,
+  PhaseId,
+  PHASE_ORDER,
+} from '@/lib/types'
+import {
+  formatDuration,
+  formatClockTime,
+  getPhaseTimerInfo,
+  getCurrentPhase,
+  cn,
+} from '@/lib/utils'
 import { getPusherClient, PUSHER_CHANNEL } from '@/lib/pusher-client'
-import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
-const CONFIG: Record<ContestantId, { label: string; color: string; border: string }> = {
-  vibe:   { label: 'Vibe Coder',  color: 'text-vibe',   border: 'border-t-vibe' },
-  junior: { label: 'Junior Dev',   color: 'text-junior', border: 'border-t-junior' },
-  senior: { label: 'Senior Dev',   color: 'text-senior', border: 'border-t-senior' },
+const CONFIG: Record<ContestantId, { label: string; color: string; border: string; bar: string }> = {
+  vibe:   { label: 'Vibe Coder',  color: 'text-vibe',   border: 'border-t-vibe',   bar: 'bg-vibe' },
+  junior: { label: 'Junior Dev',  color: 'text-junior', border: 'border-t-junior', bar: 'bg-junior' },
+  senior: { label: 'Senior Dev',  color: 'text-senior', border: 'border-t-senior', bar: 'bg-senior' },
 }
 
 interface Toast {
@@ -28,14 +40,14 @@ interface Props {
 export default function ContestantDashboard({ id, initialState }: Props) {
   const [state, setState] = useState<AppState>(initialState)
   const [clock, setClock] = useState('')
-  const [timerDisplay, setTimerDisplay] = useState('00:00:00')
-  const [phase, setPhase] = useState(getPhaseInfo(getElapsed(initialState.timers[id])))
+  const [, setTick] = useState(0)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [pauseOpen, setPauseOpen] = useState(false)
   const [pauseReason, setPauseReason] = useState('')
   const [pauseStatus, setPauseStatus] = useState<'idle' | 'pending' | 'approved' | 'denied'>('idle')
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [notes, setNotes] = useState(initialState.contestantNotes[id] || '')
+  const [showAllTasks, setShowAllTasks] = useState(false)
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const taskTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const col = CONFIG[id]
@@ -46,27 +58,26 @@ export default function ContestantDashboard({ id, initialState }: Props) {
     return () => clearInterval(iv)
   }, [])
 
+  // Tick for live timer ms updates.
   useEffect(() => {
-    const iv = setInterval(() => {
-      const elapsed = getElapsed(state.timers[id])
-      setTimerDisplay(formatDuration(elapsed))
-      setPhase(getPhaseInfo(elapsed))
-    }, 100)
+    const iv = setInterval(() => setTick(t => t + 1), 250)
     return () => clearInterval(iv)
-  }, [state.timers, id])
+  }, [])
 
   useEffect(() => {
     const client = getPusherClient()
     if (!client) return
     const channel = client.subscribe(PUSHER_CHANNEL)
 
-    channel.bind('timer-update', (data: { id: ContestantId; timer: AppState['timers']['vibe'] }) => {
-      if (data.id === id) setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timer } }))
+    channel.bind('timer-update', (data: { id: ContestantId; timers?: AppState['timers']['vibe'] }) => {
+      if (data.id === id && data.timers) {
+        setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timers! } }))
+      }
     })
 
     channel.bind('notification', (notif: Notification) => {
       if (notif.target === 'all' || notif.target === id) {
-        const isWarning = /ending in|phase \d ending|20 mins|5 minutes/i.test(notif.text)
+        const isWarning = /ending|left|complete|wrap up|final push|time's up|5 minutes|10 mins|20 mins/i.test(notif.text)
         const toast: Toast = { id: notif.id, text: notif.text, isWarning, expiresAt: notif.expiresAt }
         setToasts(prev => [...prev, toast])
         const ms = notif.expiresAt - Date.now()
@@ -78,9 +89,6 @@ export default function ContestantDashboard({ id, initialState }: Props) {
       if (data.contestant === id && data.id === pendingId) {
         setPauseStatus(data.action)
         setPendingId(null)
-        if (data.action === 'approved') {
-          setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: { ...prev.timers[id], running: false, startedAt: null } } }))
-        }
         setTimeout(() => setPauseStatus('idle'), 8000)
       }
     })
@@ -89,21 +97,38 @@ export default function ContestantDashboard({ id, initialState }: Props) {
       fetch('/api/state').then(r => r.json()).then((data: AppState) => {
         setState(data)
         setNotes(data.contestantNotes[id] || '')
-      })
+      }).catch(() => {})
     })
 
     return () => { channel.unbind_all(); client.unsubscribe(PUSHER_CHANNEL) }
   }, [id, pendingId])
 
-  // 5-second polling fallback
+  // 2-second polling — fast enough to feel near-instant, low enough not to hammer.
   useEffect(() => {
     const iv = setInterval(async () => {
-      const data: AppState = await fetch('/api/state').then(r => r.json())
-      setState(data)
-      setNotes(data.contestantNotes[id] || '')
-    }, 5000)
+      try {
+        const res = await fetch('/api/state')
+        if (!res.ok) return
+        const data: AppState = await res.json()
+        // Preserve locally-typed notes — polling shouldn't overwrite what the
+        // contestant is typing right now.
+        setState(prev => ({
+          ...data,
+          contestantNotes: { ...data.contestantNotes, [id]: prev.contestantNotes[id] ?? data.contestantNotes[id] },
+        }))
+        // Check if our pending pause request was resolved by polling state.
+        if (pendingId) {
+          const pr = data.pauseRequests.find(r => r.id === pendingId)
+          if (pr && pr.status !== 'pending') {
+            setPauseStatus(pr.status as 'approved' | 'denied')
+            setPendingId(null)
+            setTimeout(() => setPauseStatus('idle'), 8000)
+          }
+        }
+      } catch { /* ignore */ }
+    }, 2000)
     return () => clearInterval(iv)
-  }, [id])
+  }, [id, pendingId])
 
   async function handlePauseRequest() {
     try {
@@ -135,7 +160,7 @@ export default function ContestantDashboard({ id, initialState }: Props) {
       fetch(`/api/contestants/${id}/notes`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: value }),
-      })
+      }).catch(() => {})
     }, 500)
   }, [id])
 
@@ -147,18 +172,21 @@ export default function ContestantDashboard({ id, initialState }: Props) {
       fetch(`/api/contestants/${id}/tasks`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tasks }),
-      })
+      }).catch(() => {})
     }, 500)
   }
 
-  const timer = state.timers[id]
-  const status = getTimerStatus(timer)
-  const tasks: ContestantTask[] = state.contestantChecklists[id] || []
-  const done = tasks.filter(t => t.done).length
+  const timers = state.timers[id]
+  const currentPhase: PhaseId = getCurrentPhase(timers)
+  const currentInfo = getPhaseTimerInfo(timers, currentPhase)
+  const allTasks: ContestantTask[] = state.contestantChecklists[id] || []
+  const visibleTasks = showAllTasks
+    ? allTasks
+    : allTasks.filter(t => !t.phase || t.phase === currentPhase)
+  const done = visibleTasks.filter(t => t.done).length
 
   return (
     <div className="min-h-screen bg-page">
-      {/* Notification banners */}
       <div className="fixed top-0 left-0 right-0 z-50 flex flex-col gap-1.5 p-3 pointer-events-none">
         {toasts.map(toast => (
           <div
@@ -177,42 +205,51 @@ export default function ContestantDashboard({ id, initialState }: Props) {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <h1 className={cn('font-display text-2xl font-semibold', col.color)}>{col.label}</h1>
           <div className="font-display text-xl text-secondary tabular-nums">{clock}</div>
         </div>
 
-        {/* Timer block */}
-        <div className={cn('bg-surface rounded-2xl border border-t-4 border-border shadow-card p-8 text-center mb-6', col.border)}>
-          <div className="font-display text-7xl md:text-8xl text-primary tabular-nums tracking-tight mb-3">
-            {timerDisplay}
+        <div className={cn('bg-surface rounded-2xl border border-t-4 border-border shadow-card p-8 text-center mb-4', col.border)}>
+          <div className="text-xs uppercase tracking-wider font-semibold text-secondary mb-2">{currentInfo.name}</div>
+          <div className="font-display text-7xl md:text-8xl text-primary tabular-nums tracking-tight mb-1">
+            {formatDuration(currentInfo.elapsed)}
+          </div>
+          <div className="text-sm text-muted tabular-nums mb-4">
+            of {formatDuration(currentInfo.duration)}
           </div>
 
           <div className={cn(
             'inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full mb-4',
-            status === 'running' ? 'bg-success-bg text-success' : status === 'paused' ? 'bg-warning-bg text-warning' : 'bg-page text-muted border border-border'
+            currentInfo.status === 'running' ? 'bg-success-bg text-success' :
+            currentInfo.status === 'paused' ? 'bg-warning-bg text-warning' :
+            currentInfo.status === 'done' ? 'bg-success-bg text-success' :
+            'bg-page text-muted border border-border'
           )}>
-            <span className={cn('w-1.5 h-1.5 rounded-full', status === 'running' ? 'bg-success' : status === 'paused' ? 'bg-warning' : 'bg-muted')} />
-            {status === 'running' ? 'Running' : status === 'paused' ? 'Paused' : 'Stopped'}
+            <span className={cn(
+              'w-1.5 h-1.5 rounded-full',
+              currentInfo.status === 'running' ? 'bg-success' :
+              currentInfo.status === 'paused' ? 'bg-warning' :
+              currentInfo.status === 'done' ? 'bg-success' : 'bg-muted'
+            )} />
+            {currentInfo.status === 'running' ? 'Running' :
+              currentInfo.status === 'paused' ? 'Paused' :
+              currentInfo.status === 'done' ? 'Phase complete' : 'Not started'}
           </div>
 
-          {phase.name !== 'Done' && (
+          {currentInfo.status !== 'done' && (
             <div className="w-full max-w-xs mx-auto mb-4">
               <div className="flex items-center justify-between text-xs mb-1.5">
-                <span className="font-semibold text-secondary">{phase.name}</span>
-                <span className="text-muted tabular-nums">{formatDuration(phase.remaining)} left</span>
+                <span className="font-semibold text-secondary">{formatDuration(currentInfo.remaining)} left</span>
+                <span className="text-muted tabular-nums">{Math.round(currentInfo.progress * 100)}%</span>
               </div>
               <div className="h-1.5 bg-page rounded-full overflow-hidden">
                 <div
-                  className={cn('h-full rounded-full transition-all', col.border.replace('border-t-', 'bg-'))}
-                  style={{ width: `${Math.min(phase.progress * 100, 100)}%` }}
+                  className={cn('h-full rounded-full transition-all', col.bar)}
+                  style={{ width: `${Math.min(currentInfo.progress * 100, 100)}%` }}
                 />
               </div>
             </div>
-          )}
-          {phase.name === 'Done' && (
-            <div className="text-sm text-success font-medium mb-4">All phases complete!</div>
           )}
 
           {pauseStatus === 'approved' && (
@@ -227,7 +264,7 @@ export default function ContestantDashboard({ id, initialState }: Props) {
           )}
 
           <button
-            onClick={() => { if (pauseStatus !== 'idle' && pauseStatus !== 'pending') { setPauseStatus('idle') } else if (pauseStatus === 'idle') setPauseOpen(true) }}
+            onClick={() => { if (pauseStatus === 'idle') setPauseOpen(true) }}
             disabled={pauseStatus === 'pending'}
             className={cn(
               'h-9 px-5 rounded-lg text-sm border transition-colors',
@@ -240,27 +277,59 @@ export default function ContestantDashboard({ id, initialState }: Props) {
           </button>
         </div>
 
-        {/* Two columns */}
+        {/* Phase strip — quick view of all 3 phases */}
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          {PHASE_ORDER.map(p => {
+            const info = getPhaseTimerInfo(timers, p)
+            const isCurrent = p === currentPhase
+            return (
+              <div
+                key={p}
+                className={cn(
+                  'rounded-lg border p-2 text-center',
+                  isCurrent ? 'border-border-strong bg-surface' : 'border-border bg-surface/50'
+                )}
+              >
+                <div className="text-[10px] uppercase tracking-wider text-muted mb-0.5">{info.name}</div>
+                <div className="font-display text-base text-primary tabular-nums">{formatDuration(info.elapsed)}</div>
+                <div className="text-[10px] text-muted">
+                  {info.status === 'running' ? '● Running' :
+                    info.status === 'done' ? '✓ Done' :
+                    info.status === 'paused' ? 'Paused' : 'Not started'}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
         <div className="grid md:grid-cols-2 gap-4">
-          {/* Recording checklist */}
           <div className="bg-surface rounded-xl border border-border shadow-card p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider">Recording checklist</h2>
-              <span className="text-xs text-muted font-mono">{done}/{tasks.length}</span>
+              <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider">
+                {showAllTasks ? 'All recording items' : `${currentInfo.name} checklist`}
+              </h2>
+              <span className="text-xs text-muted font-mono">{done}/{visibleTasks.length}</span>
             </div>
             <div className="flex flex-col gap-0.5">
-              {tasks.map(task => (
+              {visibleTasks.map(task => (
                 <label key={task.id} className={cn('flex items-start gap-2.5 px-1 py-1.5 rounded cursor-pointer hover:bg-page transition-colors', task.done && 'opacity-50')}>
                   <input type="checkbox" checked={task.done} onChange={() => toggleTask(task.id)} className="mt-0.5" />
                   <span className={cn('text-sm text-primary leading-snug', task.done && 'line-through text-muted')}>{task.text}</span>
                 </label>
               ))}
+              {visibleTasks.length === 0 && (
+                <p className="text-xs text-muted text-center py-2">No items for this phase.</p>
+              )}
             </div>
+            <button
+              onClick={() => setShowAllTasks(s => !s)}
+              className="mt-3 text-xs text-muted hover:text-primary transition-colors"
+            >
+              {showAllTasks ? '▼ Show current phase only' : '▶ Show all phases'}
+            </button>
           </div>
 
-          {/* Right column */}
           <div className="flex flex-col gap-4">
-            {/* Shared info from host */}
             {state.sharedInfo && (
               <div className="bg-surface rounded-xl border border-border shadow-card p-4">
                 <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider mb-2">From host</h2>
@@ -268,14 +337,13 @@ export default function ContestantDashboard({ id, initialState }: Props) {
               </div>
             )}
 
-            {/* Private notes */}
             <div className="bg-surface rounded-xl border border-border shadow-card p-4">
               <h2 className="text-xs font-semibold text-secondary uppercase tracking-wider mb-2">Your notes</h2>
               <textarea
                 value={notes}
                 onChange={e => { setNotes(e.target.value); saveNote(e.target.value) }}
                 onBlur={() => saveNote(notes)}
-                placeholder="Passwords, logins, API keys, links…"
+                placeholder="Passwords, logins, API keys, links."
                 className="w-full min-h-[140px] text-xs font-mono text-primary bg-page border border-border rounded-lg px-3 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/60 placeholder:text-muted"
                 spellCheck={false}
               />
@@ -284,7 +352,6 @@ export default function ContestantDashboard({ id, initialState }: Props) {
         </div>
       </div>
 
-      {/* Pause dialog */}
       <Dialog open={pauseOpen} onOpenChange={setPauseOpen}>
         <DialogContent>
           <DialogHeader>

@@ -22,6 +22,28 @@ export type TimerState = {
   startedAt: number | null
 }
 
+export type PhaseId = 'plan' | 'build1' | 'build2'
+
+export type ContestantTimers = {
+  plan: TimerState
+  build1: TimerState
+  build2: TimerState
+}
+
+export const PHASE_DURATIONS: Record<PhaseId, number> = {
+  plan:   30  * 60 * 1000,  // 30 min
+  build1: 150 * 60 * 1000,  // 2.5 hr
+  build2: 120 * 60 * 1000,  // 2 hr
+}
+
+export const PHASE_LABELS: Record<PhaseId, string> = {
+  plan:   'Plan Phase',
+  build1: 'Build Phase 1',
+  build2: 'Build Phase 2',
+}
+
+export const PHASE_ORDER: PhaseId[] = ['plan', 'build1', 'build2']
+
 export type Reminder = {
   id: string
   text: string
@@ -57,6 +79,7 @@ export type ContestantTask = {
   id: string
   text: string
   done: boolean
+  phase?: PhaseId    // optional — undefined means show in every phase
 }
 
 export type ContestantId = 'vibe' | 'junior' | 'senior'
@@ -66,9 +89,9 @@ export type AppState = {
   reminders: Reminder[]
   pmRoles: PMRole[]
   timers: {
-    vibe: TimerState
-    junior: TimerState
-    senior: TimerState
+    vibe: ContestantTimers
+    junior: ContestantTimers
+    senior: ContestantTimers
   }
   notifications: Notification[]
   pauseRequests: PauseRequest[]

@@ -33,17 +33,26 @@ async function tryKVSet(state: AppState): Promise<void> {
   }
 }
 
-// Backfill any fields missing on older stored state shapes so reads never crash.
+// Migrate older stored state shapes so reads never crash. In particular,
+// old data stored a single TimerState per contestant; the new shape is
+// { plan, build1, build2 } per contestant.
 function migrate(data: AppState): AppState {
   const seed = getSeedState()
+  function fixTimers(t: unknown): typeof seed.timers.vibe {
+    if (t && typeof t === 'object' && 'plan' in (t as object)) {
+      return t as typeof seed.timers.vibe
+    }
+    // Old shape or missing — start fresh.
+    return seed.timers.vibe
+  }
   return {
     phases: data.phases ?? seed.phases,
     reminders: data.reminders ?? seed.reminders,
     pmRoles: data.pmRoles ?? seed.pmRoles,
     timers: {
-      vibe:   data.timers?.vibe   ?? seed.timers.vibe,
-      junior: data.timers?.junior ?? seed.timers.junior,
-      senior: data.timers?.senior ?? seed.timers.senior,
+      vibe:   fixTimers(data.timers?.vibe),
+      junior: fixTimers(data.timers?.junior),
+      senior: fixTimers(data.timers?.senior),
     },
     notifications: data.notifications ?? [],
     pauseRequests: data.pauseRequests ?? [],

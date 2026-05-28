@@ -16,8 +16,12 @@ export async function POST(req: NextRequest) {
     if (body.action === 'add') {
       const baseId = `custom-${Date.now()}`
       const checklists = { ...state.contestantChecklists }
+      const phase = body.phase && ['plan', 'build1', 'build2'].includes(body.phase) ? body.phase : undefined
       for (const id of CONTESTANTS) {
-        checklists[id] = [...(checklists[id] || []), { id: `${id}-${baseId}`, text: body.text, done: false }]
+        checklists[id] = [
+          ...(checklists[id] || []),
+          { id: `${id}-${baseId}`, text: body.text, done: false, phase },
+        ]
       }
       const updated = await patchState({ contestantChecklists: checklists })
       await safeTrigger('state-update', {})

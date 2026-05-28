@@ -1,8 +1,17 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { AppState, ContestantId, Phase } from '@/lib/types'
-import { formatClockTime, getElapsed, getPhaseInfo } from '@/lib/utils'
+import {
+  AppState,
+  ContestantId,
+  Phase,
+  PhaseId,
+  PHASE_ORDER,
+  PHASE_DURATIONS,
+  PHASE_LABELS,
+  ContestantTimers,
+} from '@/lib/types'
+import { formatClockTime, getElapsed } from '@/lib/utils'
 import { getPusherClient, PUSHER_CHANNEL } from '@/lib/pusher-client'
 import TimerCard from './TimerCard'
 import PhaseChecklist from './PhaseChecklist'
@@ -22,18 +31,33 @@ function playBeep() {
   } catch { /* no audio */ }
 }
 
-// Phase milestones: [elapsedMs, message, targetContestant (or 'all')]
-const MILESTONES: [number, string][] = [
-  [25 * 60 * 1000,   'Plan Phase ending in 5 minutes. Wrap up your plan.'],
-  [30 * 60 * 1000,   'Plan Phase done. Build Phase 1 starts now.'],
-  [90 * 60 * 1000,   '1 hour into Build Phase 1. Keep it up.'],
-  [150 * 60 * 1000,  '1.5 hours in. Halfway through the build phases.'],
-  [175 * 60 * 1000,  'Build Phase 1 ending in 5 minutes.'],
-  [180 * 60 * 1000,  'Build Phase 2 starting now. Final stretch.'],
-  [240 * 60 * 1000,  '1 hour left. Start wrapping up loose ends.'],
-  [295 * 60 * 1000,  '5 minutes left. Final push.'],
-  [300 * 60 * 1000,  "Time's up. Stop building."],
-]
+// Per-phase milestones — each fires when that phase's own timer crosses the mark.
+type Milestone = { atMs: number; text: (label: string) => string }
+const PHASE_MILESTONES: Record<PhaseId, Milestone[]> = {
+  plan: [
+    { atMs: 15 * 60 * 1000, text: () => 'Plan Phase: halfway through. 15 minutes left.' },
+    { atMs: 25 * 60 * 1000, text: () => 'Plan Phase: 5 minutes left. Wrap up your plan.' },
+    { atMs: 30 * 60 * 1000, text: () => 'Plan Phase complete. Move on to Build Phase 1.' },
+  ],
+  build1: [
+    { atMs: 60 * 60 * 1000,  text: () => 'Build Phase 1: 1 hour in. Keep going.' },
+    { atMs: 75 * 60 * 1000,  text: () => 'Build Phase 1: halfway through.' },
+    { atMs: 120 * 60 * 1000, text: () => 'Build Phase 1: 30 minutes left.' },
+    { atMs: 145 * 60 * 1000, text: () => 'Build Phase 1: 5 minutes left.' },
+    { atMs: 150 * 60 * 1000, text: () => 'Build Phase 1 complete. Time for lunch / Build Phase 2.' },
+  ],
+  build2: [
+    { atMs: 30 * 60 * 1000,  text: () => 'Build Phase 2: 30 minutes in. Final stretch.' },
+    { atMs: 60 * 60 * 1000,  text: () => 'Build Phase 2: halfway through. 1 hour left.' },
+    { atMs: 90 * 60 * 1000,  text: () => 'Build Phase 2: 30 minutes left. Start wrapping up.' },
+    { atMs: 115 * 60 * 1000, text: () => 'Build Phase 2: 5 minutes left. Final push.' },
+    { atMs: 120 * 60 * 1000, text: () => "Build Phase 2 complete. Time's up." },
+  ],
+}
+
+const CONTESTANT_LABELS: Record<ContestantId, string> = {
+  vibe: 'Vibe', junior: 'Junior', senior: 'Senior',
+}
 
 interface Toast { id: string; text: string }
 
@@ -61,8 +85,10 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     const client = getPusherClient()
     if (!client) return
     const channel = client.subscribe(PUSHER_CHANNEL)
-    channel.bind('timer-update', (data: { id: ContestantId; timer: AppState['timers']['vibe'] }) => {
-      setState(prev => ({ ...prev, timers: { ...prev.timers, [data.id]: data.timer } }))
+    channel.bind('timer-update', (data: { id: ContestantId; timers: ContestantTimers }) => {
+      if (data?.timers) {
+        setState(prev => ({ ...prev, timers: { ...prev.timers, [data.id]: data.timers } }))
+      }
     })
     channel.bind('pause-request', () => {
       fetch('/api/state').then(r => r.json()).then(setState).catch(() => {})
@@ -70,8 +96,7 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     return () => { channel.unbind_all(); client.unsubscribe(PUSHER_CHANNEL) }
   }, [])
 
-  // 3-second polling fallback so pause requests and timer state stay in sync
-  // even when Pusher is unavailable or misconfigured.
+  // 2-second polling fallback for pause requests and timer state.
   useEffect(() => {
     const iv = setInterval(async () => {
       try {
@@ -84,11 +109,11 @@ export default function HostDashboard({ initialState }: { initialState: AppState
           pauseRequests: data.pauseRequests,
         }))
       } catch { /* ignore */ }
-    }, 3000)
+    }, 2000)
     return () => clearInterval(iv)
   }, [])
 
-  // Phase milestone check every 10s
+  // Per-phase milestone check every 5s.
   useEffect(() => {
     function addToast(text: string) {
       playBeep()
@@ -103,18 +128,23 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     function check() {
       setState(prev => {
         const contestants: ContestantId[] = ['vibe', 'junior', 'senior']
-        for (const contestantId of contestants) {
-          const elapsed = getElapsed(prev.timers[contestantId])
-          for (const [ms, message] of MILESTONES) {
-            const key = `${contestantId}-${ms}`
-            if (elapsed >= ms && !milestoneFired.current.get(key)) {
-              milestoneFired.current.set(key, true)
-              addToast(`${contestantId === 'vibe' ? 'Vibe' : contestantId === 'junior' ? 'Junior' : 'Senior'}: ${message}`)
-              fetch('/api/notifications', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: message, target: contestantId, durationMs: 90000 }),
-              })
+        for (const cid of contestants) {
+          const timers = prev.timers[cid]
+          if (!timers) continue
+          for (const phase of PHASE_ORDER) {
+            const elapsed = getElapsed(timers[phase])
+            for (const m of PHASE_MILESTONES[phase] || []) {
+              const key = `${cid}-${phase}-${m.atMs}`
+              if (elapsed >= m.atMs && !milestoneFired.current.get(key)) {
+                milestoneFired.current.set(key, true)
+                const msg = m.text(PHASE_LABELS[phase])
+                addToast(`${CONTESTANT_LABELS[cid]}: ${msg}`)
+                fetch('/api/notifications', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text: msg, target: cid, durationMs: 90000 }),
+                }).catch(() => {})
+              }
             }
           }
         }
@@ -122,14 +152,14 @@ export default function HostDashboard({ initialState }: { initialState: AppState
       })
     }
 
-    const iv = setInterval(check, 10000)
+    const iv = setInterval(check, 5000)
     return () => clearInterval(iv)
   }, [])
 
   const saveState = useCallback((patch: Partial<AppState>) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      fetch('/api/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+      fetch('/api/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }).catch(() => {})
     }, 500)
   }, [])
 
@@ -143,28 +173,46 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     saveState({ sharedInfo })
   }
 
-  async function toggleTimer(id: ContestantId) {
-    const res = await fetch(`/api/timers/${id}/toggle`, { method: 'POST' })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      const id2 = `err-${Date.now()}`
-      setToasts(prev => [...prev, { id: id2, text: `Error: ${err.error || res.status}` }])
-      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id2)), 8000)
-      return
-    }
-    const timer = await res.json()
-    setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: timer } }))
+  function pushError(text: string) {
+    const id = `err-${Date.now()}`
+    setToasts(prev => [...prev, { id, text }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000)
   }
 
-  async function resetTimer(id: ContestantId) {
-    const res = await fetch(`/api/timers/${id}/reset`, { method: 'POST' })
-    if (!res.ok) return
-    const timer = await res.json()
-    setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: timer } }))
-    // Clear milestone flags for this contestant so they re-fire after reset
-    for (const [ms] of MILESTONES) {
-      milestoneFired.current.delete(`${id}-${ms}`)
+  async function toggleTimer(id: ContestantId, phase: PhaseId) {
+    try {
+      const res = await fetch(`/api/timers/${id}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        pushError(`Timer error: ${err.error || res.status}`)
+        return
+      }
+      const data = await res.json()
+      setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timers } }))
+    } catch {
+      pushError('Network error toggling timer.')
     }
+  }
+
+  async function resetTimer(id: ContestantId, phase: PhaseId) {
+    try {
+      const res = await fetch(`/api/timers/${id}/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: data.timers } }))
+      // Clear milestone flags for this contestant+phase only.
+      for (const m of PHASE_MILESTONES[phase] || []) {
+        milestoneFired.current.delete(`${id}-${phase}-${m.atMs}`)
+      }
+    } catch { /* ignore */ }
   }
 
   async function ackPauseRequest(requestId: string, action: 'approved' | 'denied') {
@@ -176,10 +224,10 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     setState(data)
   }
 
-  async function addChecklistItem(text: string) {
+  async function addChecklistItem(text: string, phase?: PhaseId) {
     const res = await fetch('/api/checklist', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'add', text }),
+      body: JSON.stringify({ action: 'add', text, phase }),
     })
     if (!res.ok) return
     const data: AppState = await res.json()
@@ -213,7 +261,6 @@ export default function HostDashboard({ initialState }: { initialState: AppState
 
   return (
     <div className="min-h-screen bg-page">
-      {/* Toast notifications */}
       <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-xs">
         {toasts.map(toast => (
           <div key={toast.id} className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white border border-border shadow-card-hover text-sm text-primary">
@@ -224,7 +271,6 @@ export default function HostDashboard({ initialState }: { initialState: AppState
       </div>
 
       <div className="max-w-[1440px] mx-auto px-4 py-5 md:px-6">
-        {/* Header */}
         <div className="flex items-end justify-between mb-5">
           <div>
             <h1 className="font-display text-3xl text-primary leading-tight">3 Builders</h1>
@@ -233,29 +279,25 @@ export default function HostDashboard({ initialState }: { initialState: AppState
           <div className="font-display text-2xl text-primary tabular-nums">{clock}</div>
         </div>
 
-        {/* Timers */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
           {CONTESTANTS.map(id => (
             <TimerCard
               key={id}
               id={id}
-              timer={state.timers[id]}
+              timers={state.timers[id]}
               pendingRequest={pendingRequests.find(r => r.contestant === id)}
-              onToggle={() => toggleTimer(id)}
-              onReset={() => resetTimer(id)}
+              onToggle={phase => toggleTimer(id, phase)}
+              onReset={phase => resetTimer(id, phase)}
               onAck={ackPauseRequest}
             />
           ))}
         </div>
 
-        {/* Main layout */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
-          {/* Phases */}
           <div className="bg-surface rounded-xl border border-border shadow-card p-5">
             <PhaseChecklist phases={state.phases} onUpdatePhases={updatePhases} />
           </div>
 
-          {/* Sidebar */}
           <div className="flex flex-col gap-3">
             <div className="bg-surface rounded-xl border border-border shadow-card p-4">
               <PauseRequestsPanel requests={state.pauseRequests} onAck={ackPauseRequest} />
@@ -282,8 +324,9 @@ export default function HostDashboard({ initialState }: { initialState: AppState
                   : 'w-full h-8 text-xs rounded-lg border border-danger/50 bg-danger-bg text-danger font-medium'
                 }
               >
-                {resetConfirm === 0 ? 'Reset everything' : 'Click again to wipe all state'}
+                {resetConfirm === 0 ? 'Reset all state' : 'Click again to wipe everything'}
               </button>
+              <p className="text-[10px] text-muted mt-2">Wipes every timer, checklist, shared info, pause history.</p>
             </div>
           </div>
         </div>

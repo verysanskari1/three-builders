@@ -1,6 +1,13 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { TimerState } from './types'
+import {
+  TimerState,
+  ContestantTimers,
+  PhaseId,
+  PHASE_DURATIONS,
+  PHASE_LABELS,
+  PHASE_ORDER,
+} from './types'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -15,7 +22,7 @@ export function formatDuration(ms: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-export function getElapsed(timer: TimerState): number {
+export function getElapsed(timer: TimerState | undefined): number {
   if (!timer || typeof timer.elapsed !== 'number') return 0
   if (timer.running && timer.startedAt) {
     return timer.elapsed + (Date.now() - timer.startedAt)
@@ -29,51 +36,52 @@ export function formatClockTime(date: Date): string {
   })
 }
 
-export function getTimerStatus(timer: TimerState): 'stopped' | 'running' | 'paused' {
+export function getTimerStatus(timer: TimerState | undefined): 'stopped' | 'running' | 'paused' {
   if (!timer || typeof timer.elapsed !== 'number') return 'stopped'
   if (timer.running) return 'running'
   if (timer.elapsed > 0) return 'paused'
   return 'stopped'
 }
 
-// Phase boundaries (ms)
-const PLAN_END   = 30  * 60 * 1000   // 30 min
-const BUILD1_END = 180 * 60 * 1000   // 3 hr  (30min plan + 2.5hr build)
-const BUILD2_END = 300 * 60 * 1000   // 5 hr  (+ 2hr build)
-
 export type PhaseInfo = {
-  name: 'Plan Phase' | 'Build Phase 1' | 'Build Phase 2' | 'Done'
-  remaining: number   // ms
-  progress: number    // 0..1
-  duration: number    // ms of this phase
+  id: PhaseId
+  name: string
+  elapsed: number
+  duration: number
+  remaining: number
+  progress: number   // 0..1
+  running: boolean
+  status: 'stopped' | 'running' | 'paused' | 'done'
 }
 
-export function getPhaseInfo(elapsedMs: number): PhaseInfo {
-  if (elapsedMs < PLAN_END) {
-    return {
-      name: 'Plan Phase',
-      remaining: PLAN_END - elapsedMs,
-      progress: elapsedMs / PLAN_END,
-      duration: PLAN_END,
-    }
+export function getPhaseTimerInfo(timers: ContestantTimers, phase: PhaseId): PhaseInfo {
+  const timer = timers?.[phase]
+  const elapsed = getElapsed(timer)
+  const duration = PHASE_DURATIONS[phase]
+  const remaining = Math.max(duration - elapsed, 0)
+  const progress = Math.min(elapsed / duration, 1)
+  let status: PhaseInfo['status'] = getTimerStatus(timer)
+  if (elapsed >= duration) status = 'done'
+  return {
+    id: phase,
+    name: PHASE_LABELS[phase],
+    elapsed,
+    duration,
+    remaining,
+    progress,
+    running: !!timer?.running,
+    status,
   }
-  if (elapsedMs < BUILD1_END) {
-    const d = BUILD1_END - PLAN_END
-    return {
-      name: 'Build Phase 1',
-      remaining: BUILD1_END - elapsedMs,
-      progress: (elapsedMs - PLAN_END) / d,
-      duration: d,
-    }
+}
+
+// Active phase = the running one, else first incomplete one, else 'build2'.
+export function getCurrentPhase(timers: ContestantTimers): PhaseId {
+  if (!timers) return 'plan'
+  for (const p of PHASE_ORDER) {
+    if (timers[p]?.running) return p
   }
-  if (elapsedMs < BUILD2_END) {
-    const d = BUILD2_END - BUILD1_END
-    return {
-      name: 'Build Phase 2',
-      remaining: BUILD2_END - elapsedMs,
-      progress: (elapsedMs - BUILD1_END) / d,
-      duration: d,
-    }
+  for (const p of PHASE_ORDER) {
+    if (getElapsed(timers[p]) < PHASE_DURATIONS[p]) return p
   }
-  return { name: 'Done', remaining: 0, progress: 1, duration: 0 }
+  return 'build2'
 }
