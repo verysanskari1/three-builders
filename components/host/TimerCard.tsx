@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { formatDuration, getElapsed, getTimerStatus } from '@/lib/utils'
+import { formatDuration, getElapsed, getTimerStatus, getPhaseInfo } from '@/lib/utils'
 import { TimerState, PauseRequest, ContestantId } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -34,12 +34,17 @@ interface Props {
 
 export default function TimerCard({ id, timer, pendingRequest, onToggle, onReset, onAck }: Props) {
   const [display, setDisplay] = useState(formatDuration(getElapsed(timer)))
+  const [phase, setPhase] = useState(getPhaseInfo(getElapsed(timer)))
   const [resetOpen, setResetOpen] = useState(false)
   const [pauseOpen, setPauseOpen] = useState(false)
   const status = getTimerStatus(timer)
 
   useEffect(() => {
-    const iv = setInterval(() => setDisplay(formatDuration(getElapsed(timer))), 100)
+    const iv = setInterval(() => {
+      const elapsed = getElapsed(timer)
+      setDisplay(formatDuration(elapsed))
+      setPhase(getPhaseInfo(elapsed))
+    }, 100)
     return () => clearInterval(iv)
   }, [timer])
 
@@ -68,6 +73,24 @@ export default function TimerCard({ id, timer, pendingRequest, onToggle, onReset
       </div>
 
       <div className="font-display text-4xl text-primary tabular-nums">{display}</div>
+
+      {phase.name !== 'Done' && (
+        <div className="mt-1">
+          <div className="flex items-center justify-between text-[11px] mb-1">
+            <span className="text-secondary font-medium">{phase.name}</span>
+            <span className="text-muted tabular-nums">{formatDuration(phase.remaining)} left</span>
+          </div>
+          <div className="h-1 bg-page rounded-full overflow-hidden">
+            <div
+              className={cn('h-full rounded-full transition-all', id === 'vibe' ? 'bg-vibe' : id === 'junior' ? 'bg-junior' : 'bg-senior')}
+              style={{ width: `${Math.min(phase.progress * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+      {phase.name === 'Done' && (
+        <div className="text-[11px] text-success font-medium">All phases complete</div>
+      )}
 
       <div className="flex gap-2">
         <button

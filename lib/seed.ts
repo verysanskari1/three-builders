@@ -8,21 +8,16 @@ function t(text: string, owner: '' | 'Kanishkar' | 'Sanskar' | 'Shared', note: s
 
 // Build-room-only recording checklist
 const RECORDING_CHECKLIST: ContestantTask[] = [
-  'Talked to camera before writing first prompt',
-  'Narrated prompts out loud before hitting Enter',
-  'Reacted on camera when AI did something unexpected or great',
-  'Usage screenshot — 30 min into build',
-  'Usage screenshot — 1 hr into build',
-  'Usage screenshot — 1.5 hr into build',
-  'Reacted to the PM interruption on camera',
-  'Post-lunch check-in to camera',
-  'Usage screenshot — 2.5 hr mark',
-  'Reacted to Bug Bounty PR on camera (3:00 PM)',
-  'Usage screenshot — 3 hr mark',
-  'Demo\'d final build to camera',
-  'Ran on sample tickets on camera',
-  'Final confidence meter check-in on camera',
-  'Tella TV recording running throughout',
+  'Introduced yourself to camera before starting',
+  'Walked through your plan out loud before writing any code',
+  'Talked to camera just before the first prompt',
+  'Narrated what you were doing during the build',
+  'Reacted on camera when something went wrong',
+  'Reacted on camera when the AI did something impressive',
+  'Did a mid-build check-in — how is it going?',
+  'Talked to camera after a major milestone was hit',
+  'Demoed the final build to camera',
+  'Gave your final confidence rating on camera',
 ].map((text, i) => ({ id: `ct${i + 1}`, text, done: false }))
 
 const PHASES: Phase[] = [

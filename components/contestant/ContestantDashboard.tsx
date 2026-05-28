@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AppState, ContestantId, ContestantTask, Notification } from '@/lib/types'
-import { formatDuration, formatClockTime, getElapsed, getTimerStatus } from '@/lib/utils'
+import { formatDuration, formatClockTime, getElapsed, getTimerStatus, getPhaseInfo } from '@/lib/utils'
 import { getPusherClient, PUSHER_CHANNEL } from '@/lib/pusher-client'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -29,6 +29,7 @@ export default function ContestantDashboard({ id, initialState }: Props) {
   const [state, setState] = useState<AppState>(initialState)
   const [clock, setClock] = useState('')
   const [timerDisplay, setTimerDisplay] = useState('00:00:00')
+  const [phase, setPhase] = useState(getPhaseInfo(getElapsed(initialState.timers[id])))
   const [toasts, setToasts] = useState<Toast[]>([])
   const [pauseOpen, setPauseOpen] = useState(false)
   const [pauseReason, setPauseReason] = useState('')
@@ -46,7 +47,11 @@ export default function ContestantDashboard({ id, initialState }: Props) {
   }, [])
 
   useEffect(() => {
-    const iv = setInterval(() => setTimerDisplay(formatDuration(getElapsed(state.timers[id]))), 100)
+    const iv = setInterval(() => {
+      const elapsed = getElapsed(state.timers[id])
+      setTimerDisplay(formatDuration(elapsed))
+      setPhase(getPhaseInfo(elapsed))
+    }, 100)
     return () => clearInterval(iv)
   }, [state.timers, id])
 
@@ -179,6 +184,24 @@ export default function ContestantDashboard({ id, initialState }: Props) {
             <span className={cn('w-1.5 h-1.5 rounded-full', status === 'running' ? 'bg-success' : status === 'paused' ? 'bg-warning' : 'bg-muted')} />
             {status === 'running' ? 'Running' : status === 'paused' ? 'Paused' : 'Stopped'}
           </div>
+
+          {phase.name !== 'Done' && (
+            <div className="w-full max-w-xs mx-auto mb-4">
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-semibold text-secondary">{phase.name}</span>
+                <span className="text-muted tabular-nums">{formatDuration(phase.remaining)} left</span>
+              </div>
+              <div className="h-1.5 bg-page rounded-full overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-all', col.border.replace('border-t-', 'bg-'))}
+                  style={{ width: `${Math.min(phase.progress * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {phase.name === 'Done' && (
+            <div className="text-sm text-success font-medium mb-4">All phases complete!</div>
+          )}
 
           {pauseStatus === 'approved' && (
             <div className="text-sm text-success bg-success-bg border border-success/20 rounded-lg px-4 py-2 mb-3 mx-auto max-w-xs">

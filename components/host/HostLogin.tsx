@@ -20,7 +20,7 @@ export default function HostLogin() {
         body: JSON.stringify({ password }),
       })
       if (res.ok) {
-        router.refresh()
+        window.location.href = '/host'
       } else {
         setError('Wrong password')
       }

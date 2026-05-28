@@ -1,14 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { AppState, ContestantId, Phase, Reminder } from '@/lib/types'
-import { formatClockTime } from '@/lib/utils'
+import { AppState, ContestantId, Phase } from '@/lib/types'
+import { formatClockTime, getElapsed, getPhaseInfo } from '@/lib/utils'
 import { getPusherClient, PUSHER_CHANNEL } from '@/lib/pusher-client'
 import TimerCard from './TimerCard'
 import PhaseChecklist from './PhaseChecklist'
-import RemindersPanel from './RemindersPanel'
 import PauseRequestsPanel from './PauseRequestsPanel'
 import SharedInfoPanel from './SharedInfoPanel'
+import ChecklistManager from './ChecklistManager'
 
 function playBeep() {
   try {
@@ -22,6 +22,19 @@ function playBeep() {
   } catch { /* no audio */ }
 }
 
+// Phase milestones: [elapsedMs, message, targetContestant (or 'all')]
+const MILESTONES: [number, string][] = [
+  [25 * 60 * 1000,   'Plan Phase ending in 5 minutes — wrap up your plan'],
+  [30 * 60 * 1000,   'Plan Phase done! Build Phase 1 starts now'],
+  [90 * 60 * 1000,   '1 hour into Build Phase 1 — keep it up!'],
+  [150 * 60 * 1000,  '1.5 hours in — halfway through the build phases'],
+  [175 * 60 * 1000,  'Build Phase 1 ending in 5 minutes'],
+  [180 * 60 * 1000,  'Build Phase 2 starting now — final stretch!'],
+  [240 * 60 * 1000,  '1 hour left — start wrapping up loose ends'],
+  [295 * 60 * 1000,  '5 minutes left — final push!'],
+  [300 * 60 * 1000,  "Time's up! Stop building"],
+]
+
 interface Toast { id: string; text: string }
 
 export default function HostDashboard({ initialState }: { initialState: AppState }) {
@@ -29,7 +42,7 @@ export default function HostDashboard({ initialState }: { initialState: AppState
   const [clock, setClock] = useState('')
   const [toasts, setToasts] = useState<Toast[]>([])
   const [resetConfirm, setResetConfirm] = useState(0)
-  const reminderLastFired = useRef<Map<string, number>>(new Map())
+  const milestoneFired = useRef<Map<string, boolean>>(new Map())
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -57,59 +70,41 @@ export default function HostDashboard({ initialState }: { initialState: AppState
     return () => { channel.unbind_all(); client.unsubscribe(PUSHER_CHANNEL) }
   }, [])
 
-  // Reminder check every 15s
+  // Phase milestone check every 10s
   useEffect(() => {
-    function triggerReminder(text: string, broadcast?: boolean) {
+    function addToast(text: string) {
       playBeep()
-      const id = `t-${Date.now()}`
+      const id = `t-${Date.now()}-${Math.random()}`
       setToasts(prev => [...prev, { id, text }])
       setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 30000)
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('3 Builders', { body: text })
       }
-      if (broadcast) {
-        fetch('/api/notifications', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, target: 'all', durationMs: 60000 }),
-        })
-      }
     }
 
     function check() {
-      const now = new Date()
-      const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`
-
       setState(prev => {
-        let changed = false
-        const reminders = prev.reminders.map(r => {
-          if (r.repeatMinutes) {
-            const last = reminderLastFired.current.get(r.id) ?? 0
-            const minsSince = (Date.now() - last) / 60000
-            if (r.time === hhmm && minsSince >= r.repeatMinutes - 0.4) {
-              if (r.repeatUntil && hhmm > r.repeatUntil) return r
-              reminderLastFired.current.set(r.id, Date.now())
-              triggerReminder(r.text, r.broadcastToContestants)
-              changed = true
+        const contestants: ContestantId[] = ['vibe', 'junior', 'senior']
+        for (const contestantId of contestants) {
+          const elapsed = getElapsed(prev.timers[contestantId])
+          for (const [ms, message] of MILESTONES) {
+            const key = `${contestantId}-${ms}`
+            if (elapsed >= ms && !milestoneFired.current.get(key)) {
+              milestoneFired.current.set(key, true)
+              addToast(`${contestantId === 'vibe' ? 'Vibe' : contestantId === 'junior' ? 'Junior' : 'Senior'}: ${message}`)
+              fetch('/api/notifications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: message, target: contestantId, durationMs: 90000 }),
+              })
             }
-            return r
           }
-          if (!r.fired && r.time === hhmm) {
-            triggerReminder(r.text, r.broadcastToContestants)
-            changed = true
-            return { ...r, fired: true }
-          }
-          return r
-        })
-        if (changed) {
-          fetch('/api/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reminders }) })
-          return { ...prev, reminders }
         }
         return prev
       })
     }
 
-    const iv = setInterval(check, 15000)
+    const iv = setInterval(check, 10000)
     return () => clearInterval(iv)
   }, [])
 
@@ -132,33 +127,55 @@ export default function HostDashboard({ initialState }: { initialState: AppState
 
   async function toggleTimer(id: ContestantId) {
     const res = await fetch(`/api/timers/${id}/toggle`, { method: 'POST' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      const id2 = `err-${Date.now()}`
+      setToasts(prev => [...prev, { id: id2, text: `Error: ${err.error || res.status}` }])
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id2)), 8000)
+      return
+    }
     const timer = await res.json()
     setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: timer } }))
   }
 
   async function resetTimer(id: ContestantId) {
     const res = await fetch(`/api/timers/${id}/reset`, { method: 'POST' })
+    if (!res.ok) return
     const timer = await res.json()
     setState(prev => ({ ...prev, timers: { ...prev.timers, [id]: timer } }))
+    // Clear milestone flags for this contestant so they re-fire after reset
+    for (const [ms] of MILESTONES) {
+      milestoneFired.current.delete(`${id}-${ms}`)
+    }
   }
 
   async function ackPauseRequest(requestId: string, action: 'approved' | 'denied') {
-    await fetch(`/api/pause-requests/${requestId}/ack`, {
+    const res = await fetch(`/api/pause-requests/${requestId}/ack`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }),
     })
-    const res = await fetch('/api/state')
-    setState(await res.json())
+    if (!res.ok) return
+    const data: AppState = await fetch('/api/state').then(r => r.json())
+    setState(data)
   }
 
-  async function addReminder(r: Omit<Reminder, 'id' | 'fired'>) {
-    const res = await fetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(r) })
-    const reminder = await res.json()
-    setState(prev => ({ ...prev, reminders: [...prev.reminders, reminder] }))
+  async function addChecklistItem(text: string) {
+    const res = await fetch('/api/checklist', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'add', text }),
+    })
+    if (!res.ok) return
+    const data: AppState = await res.json()
+    setState(data)
   }
 
-  async function deleteReminder(id: string) {
-    await fetch(`/api/reminders/${id}`, { method: 'DELETE' })
-    setState(prev => ({ ...prev, reminders: prev.reminders.filter(r => r.id !== id) }))
+  async function removeChecklistItem(baseId: string) {
+    const res = await fetch('/api/checklist', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'remove', baseId }),
+    })
+    if (!res.ok) return
+    const data: AppState = await res.json()
+    setState(data)
   }
 
   async function handleReset() {
@@ -168,6 +185,7 @@ export default function HostDashboard({ initialState }: { initialState: AppState
       return
     }
     setResetConfirm(0)
+    milestoneFired.current.clear()
     const res = await fetch('/api/state/reset', { method: 'POST' })
     setState(await res.json())
   }
@@ -222,15 +240,19 @@ export default function HostDashboard({ initialState }: { initialState: AppState
           {/* Sidebar */}
           <div className="flex flex-col gap-3">
             <div className="bg-surface rounded-xl border border-border shadow-card p-4">
-              <RemindersPanel reminders={state.reminders} onAdd={addReminder} onDelete={deleteReminder} onMarkFired={() => {}} />
-            </div>
-
-            <div className="bg-surface rounded-xl border border-border shadow-card p-4">
               <PauseRequestsPanel requests={state.pauseRequests} onAck={ackPauseRequest} />
             </div>
 
             <div className="bg-surface rounded-xl border border-border shadow-card p-4">
               <SharedInfoPanel value={state.sharedInfo ?? ''} onChange={updateSharedInfo} />
+            </div>
+
+            <div className="bg-surface rounded-xl border border-border shadow-card p-4">
+              <ChecklistManager
+                items={state.contestantChecklists.vibe || []}
+                onAdd={addChecklistItem}
+                onRemove={removeChecklistItem}
+              />
             </div>
 
             <div className="bg-surface rounded-xl border border-border shadow-card p-4">
